@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "name": "eravas print a",
+  "refSize": 92,
+  "closedPoolChance": 0.5,
+  "defaults": {
+    "kind": "stroke"
+  },
+  "chars": {
+    ",": {
+      "kind": "mark"
+    },
+    ";": {
+      "kind": "mark"
+    },
+    "'": {
+      "kind": "mark"
+    },
+    "\"": {
+      "kind": "mark"
+    },
+    "`": {
+      "kind": "mark"
+    },
+    "‘": {
+      "kind": "mark"
+    },
+    "’": {
+      "kind": "mark"
+    },
+    "“": {
+      "kind": "mark"
+    },
+    "”": {
+      "kind": "mark"
+    },
+    "e": {
+      "end": "bottom",
+      "endRadius": 1.9,
+      "endAmount": 1
+    },
+    "g": {
+      "start": "skel:top",
+      "end": "junction:right",
+      "endRadius": 1.9,
+      "endAmount": 1,
+      "crossbar": false
+    },
+    "*": {
+      "kind": "radial",
+      "pooled": [
+        1,
+        3
+      ]
+    }
+  }
+}
