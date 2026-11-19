@@ -1,0 +1,43 @@
+FONTLOG for eravas print a
+--------------------------
+
+This file provides detailed information on the eravas print a font software.
+This information should be distributed along with the eravas print a font and
+any derivative works.
+
+
+Basic Font Information
+----------------------
+
+eravas print a is a handwriting font by Harsh Patel. Each character was drawn
+by hand and built into a font with Ductus (https://ductus.sorenblank.com).
+
+Coverage: 106 code points, namely all printable ASCII (U+0020 to U+007E), plus
+U+00A0 no-break space, U+2010 hyphen, U+2011 non-breaking hyphen,
+U+2013 en dash, U+2014 em dash, U+2018 and U+2019 single quotation marks,
+U+201C and U+201D double quotation marks, U+2026 ellipsis and U+2212 minus.
+
+The font is licensed under the SIL Open Font License, Version 1.1 (see
+OFL.txt), with Reserved Font Name "eravas print".
+
+
+ChangeLog
+---------
+
+2026-11-19 (Harsh Patel) eravas print a Rev.A (font version 1.000)
+- Initial release.
+- Added the copyright, license, license URL, manufacturer, designer and
+  designer URL fields to the font's naming table.
+- Removed the DUCT table (private data written by the font builder; not used
+  for rendering).
+- Set the OS/2 table to version 4, which defines the USE_TYPO_METRICS flag
+  the font already sets (no change to metrics or rendering).
+- Added a WOFF2 version for the web, built from the OTF (same tables).
+
+
+Acknowledgements
+----------------
+
+N: Harsh Patel
+W: https://eravas.ca
+D: Designer
