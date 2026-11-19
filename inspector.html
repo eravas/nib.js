@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nib.js font inspector</title>
+<style>
+@font-face { font-family: "eravas print a"; src: url("fonts/eravas-print-a/eravas-print-a.woff2") format("woff2"), url("fonts/eravas-print-a/eravas-print-a.otf") format("opentype"); }
+:root {
+  --ground: #F8F5F0; --paper: #fbfaf7; --text: #171310; --muted: #6b635b; --rule: #ddd6cc; --faint: #ece7df;
+  --start: #2f8f5b; --end: #6a3fb0; --flag: #b8741a;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--ground); color: var(--text); font: 13px/1.5 var(--mono); }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 2px 0; cursor: pointer; }
+button[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, .tile:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+header { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--rule); }
+header .title { margin-right: auto; }
+label.file { cursor: pointer; }
+label.file input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.muted { color: var(--muted); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 460px; min-height: calc(100vh - 58px); }
+.left { padding: 16px 24px; border-right: 1px solid var(--rule); }
+.filters { display: flex; gap: 16px; margin-bottom: 12px; align-items: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.tile { position: relative; background: var(--paper); border: 1px solid var(--faint); cursor: pointer; padding: 0; aspect-ratio: 5 / 6; }
+.tile canvas { width: 100%; height: 100%; display: block; }
+.tile .ch { position: absolute; left: 5px; top: 3px; font-size: 11px; color: var(--muted); }
+.tile .badge { position: absolute; right: 5px; top: 3px; font-size: 11px; }
+.tile .badge.flag { color: var(--flag); }
+.tile .badge.rule { color: var(--start); }
+.tile.sel { border-color: var(--text); }
+.right { padding: 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.big { background: var(--paper); border: 1px solid var(--faint); position: relative; }
+.big canvas { display: block; width: 100%; cursor: crosshair; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.row { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+.row .k { color: var(--muted); min-width: 70px; }
+.flags { color: var(--flag); }
+.preview { display: flex; gap: 10px; background: var(--paper); border: 1px solid var(--faint); padding: 8px; align-items: flex-end; min-height: 120px; }
+.preview canvas { mix-blend-mode: multiply; }
+.testline { background: var(--paper); border: 1px solid var(--faint); padding: 14px 16px; }
+.testline p { margin: 0; font-size: 30px; line-height: 1.35; }
+textarea { width: 100%; height: 150px; background: var(--paper); border: 1px solid var(--faint); padding: 8px; font-size: 12px; resize: vertical; }
+input[type=range] { accent-color: var(--end); width: 120px; }
+input[type=text] { background: var(--paper); border: 1px solid var(--faint); padding: 3px 6px; width: 100%; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } .left { border-right: 0; border-bottom: 1px solid var(--rule); } }
+</style>
+</head>
+<body>
+<header>
+  <span class="title">nib.js font inspector</span>
+  <label class="file">[load font…]<input id="fontFile" type="file" accept=".otf,.ttf,.woff,.woff2"></label>
+  <label class="file">[load hand…]<input id="handFile" type="file" accept=".json,application/json"></label>
+  <span class="muted" id="fontName">eravas print a · hand: eravas print a</span>
+</header>
+
+<main>
+  <section class="left" aria-label="Glyphs">
+    <div class="filters" role="group" aria-label="Show">
+      <button data-filter="all" aria-pressed="true">[all]</button>
+      <button data-filter="flag" aria-pressed="false">[flagged]</button>
+      <button data-filter="rule" aria-pressed="false">[ruled]</button>
+      <span class="muted" id="counts"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="right" aria-label="Selected glyph">
+    <div class="row"><span class="k">glyph</span><strong id="selCh" style="font-size:16px"></strong><span class="muted" id="selInfo"></span></div>
+    <div class="big"><canvas id="big" width="440" height="440" aria-label="Glyph analysis: click to place the active point"></canvas></div>
+    <div class="legend">
+      <span><i style="background:var(--start)"></i>start</span>
+      <span><i style="background:var(--end)"></i>end</span>
+      <span><i style="background:rgba(106,63,176,.25)"></i>pools</span>
+      <span><i style="background:#c0392b"></i>free ends</span>
+      <span><i style="background:#2f7fb8"></i>crossings</span>
+    </div>
+    <div class="flags" id="flags"></div>
+
+    <div class="row" role="group" aria-label="Kind">
+      <span class="k">kind</span>
+      <button data-kind="stroke">[stroke]</button><button data-kind="mark">[mark]</button>
+      <button data-kind="radial">[radial]</button><button data-kind="dot">[dot]</button><button data-kind="none">[none]</button>
+    </div>
+    <div class="row" role="group" aria-label="Click places">
+      <span class="k">click sets</span>
+      <button data-tool="start" aria-pressed="true">[start]</button><button data-tool="end">[end]</button><button data-tool="pool">[+pool]</button>
+      <button id="clearPools">[clear pools]</button><button id="reset">[reset rule]</button>
+    </div>
+    <div class="row">
+      <span class="k">end pool</span>
+      <label>size <input id="endRadius" type="range" min="0.8" max="3" step="0.1"></label>
+      <label>amount <input id="endAmount" type="range" min="0" max="1.5" step="0.05"></label>
+      <button id="crossbar">[crossbar: on]</button>
+    </div>
+    <div class="row" id="radialRow" hidden>
+      <span class="k">pooled</span>
+      <label>min <input id="pMin" type="number" min="0" max="6" style="width:46px"></label>
+      <label>max <input id="pMax" type="number" min="0" max="6" style="width:46px"></label>
+    </div>
+
+    <div>
+      <div class="row"><span class="k">ink</span><span class="muted">three inkings of the glyph with the current rule</span></div>
+      <div class="preview" id="preview"></div>
+    </div>
+    <div>
+      <div class="row"><span class="k">test line</span><input id="testText" type="text" value="the quick brown fox jumps; e.g. 'gigs'*" aria-label="Test text"></div>
+      <div class="testline"><p id="testLine"></p></div>
+    </div>
+    <div>
+      <div class="row"><span class="k">hand json</span><button id="copy">[copy]</button><button id="apply">[apply pasted]</button><span class="muted" id="copyMsg" aria-live="polite"></span></div>
+      <textarea id="json" spellcheck="false" aria-label="Hand JSON"></textarea>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { analyseGlyph, inkGlyph, createInk, ERAVAS_PRINT_A } from "./nib.js";
+
+const CHARS = [...Array(94)].map((_, i) => String.fromCharCode(33 + i)).concat(["‘", "’", "“", "”", "–", "—", "…"]);
+const SHORT_MARKS = [",", ";", "'", '"', "`", "‘", "’", "“", "”"];
+const TILE = 120, BIG = 220;
+
+const state = { family: '"eravas print a"', hand: structuredClone(ERAVAS_PRINT_A), sel: "g", tool: "start", filter: "all", info: new Map() };
+const $ = id => document.getElementById(id);
+
+/* ---------- font and hand loading ---------- */
+function starterHand(name) {
+  return { name, refSize: 92, closedPoolChance: 0.5, defaults: { kind: "stroke" },
+           chars: Object.fromEntries(SHORT_MARKS.map(c => [c, { kind: "mark" }])) };
+}
+function hasGlyph(family, ch) {
+  const ctx = hasGlyph.ctx ||= document.createElement("canvas").getContext("2d");
+  const w = f => { ctx.font = `40px ${f}`; return ctx.measureText(ch).width; };
+  return w(`${family}, monospace`) !== w("monospace") || w(`${family}, serif`) !== w("serif");
+}
+$("fontFile").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const name = "inspect-" + file.name.replace(/\W+/g, "-");
+  const face = new FontFace(name, await file.arrayBuffer());
+  await face.load(); document.fonts.add(face);
+  state.family = `"${name}"`; state.hand = starterHand(file.name.replace(/\.\w+$/, ""));
+  state.sel = null; renderAll();
+};
+$("handFile").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try { state.hand = JSON.parse(await file.text()); renderAll(); } catch (err) { $("copyMsg").textContent = "not valid JSON: " + err.message; }
+};
+
+/* ---------- drawing an analysis ---------- */
+function drawAnalysis(canvas, a, { detail }) {
+  const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // fit the glyph's ink (not the simulation padding) to the canvas
+  let x0 = a.w, y0 = a.h, x1 = 0, y1 = 0;
+  for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) if (a.A[y * a.w + x] > 0.1) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < x0) { x0 = 0; y0 = 0; x1 = a.w; y1 = a.h; }
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, fit = detail ? 0.7 : 0.62;
+  const s = Math.min(W * fit / bw, H * fit / bh, detail ? 3 : 1.6);
+  const ox = W / 2 - (x0 + bw / 2) * s, oy = H / 2 - (y0 + bh / 2) * s + (detail ? 0 : 6);
+  const P = (x, y) => [ox + x * s, oy + y * s];
+  // mask
+  const img = ctx.createImageData(a.w, a.h);
+  for (let i = 0; i < a.A.length; i++) { const v = a.A[i]; if (v > 0.02) { img.data[i*4] = 214; img.data[i*4+1] = 208; img.data[i*4+2] = 198; img.data[i*4+3] = 255 * v; } }
+  const tmp = Object.assign(document.createElement("canvas"), { width: a.w, height: a.h });
+  tmp.getContext("2d").putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(tmp, ox, oy, a.w * s, a.h * s);
+  // pools
+  for (const st of a.plan.stamps) { const [x, y] = P(st.x, st.y); ctx.fillStyle = "rgba(106,63,176,.22)"; ctx.beginPath(); ctx.arc(x, y, st.r * s, 0, 7); ctx.fill(); }
+  // centreline
+  ctx.fillStyle = "#3a332d";
+  const S = a.sim.S, dot = Math.max(1, s * 0.9);
+  for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) if (S[y * a.w + x]) { const [px, py] = P(x, y); ctx.fillRect(px - dot / 2, py - dot / 2, dot, dot); }
+  if (detail) {
+    const sq = (pts, col) => { ctx.fillStyle = col; for (const [x, y] of pts) { const [px, py] = P(x, y); ctx.fillRect(px - 3, py - 3, 6, 6); } };
+    for (const c of a.plan.comps) { sq(c.ends, "#c0392b"); sq(c.juncs.filter((_, i) => i % 3 === 0), "#2f7fb8"); }
+  }
+  // starts and ends
+  const ring = (p, col, label) => {
+    if (!p) return; const [x, y] = P(p[0], p[1]), r = detail ? 9 : 6;
+    ctx.strokeStyle = col; ctx.lineWidth = detail ? 2.5 : 2; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+    if (detail) { ctx.fillStyle = col; ctx.font = "12px ui-monospace, monospace"; ctx.fillText(label, x + r + 3, y - r); }
+  };
+  for (const st of a.plan.strokes) {
+    if (st.kind === "radial" && detail) {
+      ctx.strokeStyle = "rgba(106,63,176,.5)"; ctx.lineWidth = 1.5;
+      for (const arm of st.arms || []) if (arm.length === 2) { const [x0, y0] = P(arm[0].x, arm[0].y), [x1, y1] = P(arm[1].x, arm[1].y); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+    }
+    ring(st.start, getVar("--start"), "start"); ring(st.end, getVar("--end"), "end");
+    if (st.barStart) ring(st.barStart, getVar("--start"), "bar");
+  }
+  return { s, ox, oy };
+}
+const getVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- grid ---------- */
+function analyse(ch, size) { return analyseGlyph({ ch, family: state.family, hand: state.hand, sizePx: size }); }
+
+async function renderGrid() {
+  const grid = $("grid"); grid.textContent = "";
+  await document.fonts.load(`40px ${state.family}`);
+  const chars = CHARS.filter(c => hasGlyph(state.family, c));
+  state.info.clear();
+  let t = performance.now();
+  for (const ch of chars) {
+    const a = analyse(ch, TILE);
+    state.info.set(ch, { flags: a.flags, ruled: a.ruled });
+    const tile = document.createElement("button");
+    tile.className = "tile"; tile.dataset.ch = ch;
+    tile.setAttribute("aria-label", `${ch}${a.ruled ? ", has a rule" : ""}${a.flags.length ? ", flagged: " + a.flags.join("; ") : ""}`);
+    const c = Object.assign(document.createElement("canvas"), { width: 100, height: 120 });
+    drawAnalysis(c, a, { detail: false });
+    tile.append(c, Object.assign(document.createElement("span"), { className: "ch", textContent: ch }));
+    if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "rule" : "!" }));
+    tile.onclick = () => select(ch);
+    grid.append(tile);
+    if (performance.now() - t > 12) { await new Promise(r => setTimeout(r)); t = performance.now(); }
+  }
+  if (!state.sel || !chars.includes(state.sel)) state.sel = chars.find(c => state.info.get(c).flags.length) || chars[0];
+  applyFilter(); markSel();
+  const nf = [...state.info.values()].filter(i => i.flags.length).length, nr = [...state.info.values()].filter(i => i.ruled).length;
+  $("counts").textContent = `${chars.length} glyphs · ${nf} flagged · ${nr} with rules`;
+}
+function applyFilter() {
+  for (const tile of $("grid").children) {
+    const i = state.info.get(tile.dataset.ch);
+    tile.hidden = state.filter === "flag" ? !i.flags.length : state.filter === "rule" ? !i.ruled : false;
+  }
+}
+function markSel() { for (const t of $("grid").children) t.classList.toggle("sel", t.dataset.ch === state.sel); }
+document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
+  state.filter = b.dataset.filter;
+  document.querySelectorAll("[data-filter]").forEach(x => x.setAttribute("aria-pressed", x === b)); applyFilter();
+});
+
+/* ---------- detail ---------- */
+let bigMap = null, bigAnalysis = null;
+const rule = () => state.hand.chars?.[state.sel] || {};
+const setRule = patch => {
+  const r = { ...rule(), ...patch };
+  for (const k of Object.keys(r)) if (r[k] === undefined) delete r[k];
+  state.hand.chars ||= {};
+  if (Object.keys(r).length) state.hand.chars[state.sel] = r; else delete state.hand.chars[state.sel];
+  refreshDetail(); refreshTile(); syncJSON(); refreshTestLine();
+};
+
+function select(ch) { state.sel = ch; markSel(); refreshDetail(); }
+
+function refreshDetail() {
+  const ch = state.sel; if (!ch) return;
+  $("selCh").textContent = ch;
+  $("selInfo").textContent = `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}` + (state.hand.chars?.[ch] ? " · rule set" : " · default rule");
+  bigAnalysis = analyse(ch, BIG);
+  bigMap = drawAnalysis($("big"), bigAnalysis, { detail: true });
+  $("flags").textContent = bigAnalysis.flags.length ? "check: " + bigAnalysis.flags.join(" · ") : "";
+  const r = rule(), kind = r.kind || state.hand.defaults?.kind || "stroke";
+  document.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-pressed", b.dataset.kind === kind));
+  $("endRadius").value = r.endRadius ?? 1.7; $("endAmount").value = r.endAmount ?? 0.85;
+  $("crossbar").textContent = `[crossbar: ${r.crossbar === false ? "off" : "on"}]`;
+  $("radialRow").hidden = kind !== "radial";
+  $("pMin").value = (r.pooled || [1, 3])[0]; $("pMax").value = (r.pooled || [1, 3])[1];
+  // ink previews
+  const pv = $("preview"); pv.textContent = "";
+  for (let seed = 1; seed <= 3; seed++) {
+    const c = inkGlyph({ ch, family: state.family, hand: state.hand, sizePx: 92, seed, tier: 1 });
+    c.style.width = c.width / 1.4 + "px"; pv.append(c);
+  }
+}
+function refreshTile() {
+  const tile = [...$("grid").children].find(t => t.dataset.ch === state.sel); if (!tile) return;
+  const a = analyse(state.sel, TILE);
+  state.info.set(state.sel, { flags: a.flags, ruled: a.ruled });
+  drawAnalysis(tile.querySelector("canvas"), a, { detail: false });
+  tile.querySelector(".badge")?.remove();
+  if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "rule" : "!" }));
+}
+
+// clicks on the big canvas place the active point, in em from the pen origin (y down)
+$("big").onclick = e => {
+  if (!bigAnalysis) return;
+  const rect = e.target.getBoundingClientRect(), k = e.target.width / rect.width;
+  const cx = ((e.clientX - rect.left) * k - bigMap.ox) / bigMap.s, cy = ((e.clientY - rect.top) * k - bigMap.oy) / bigMap.s;
+  const o = bigAnalysis.origin, pt = { x: +((cx - o.x) / o.em).toFixed(3), y: +((cy - o.y) / o.em).toFixed(3) };
+  if (state.tool === "pool") setRule({ pools: [...(rule().pools || []), { at: pt }] });
+  else setRule({ [state.tool]: pt });
+};
+document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => {
+  state.tool = b.dataset.tool; document.querySelectorAll("[data-tool]").forEach(x => x.setAttribute("aria-pressed", x === b));
+});
+document.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => setRule({ kind: b.dataset.kind === "stroke" ? undefined : b.dataset.kind }));
+$("clearPools").onclick = () => setRule({ pools: undefined });
+$("reset").onclick = () => { if (state.hand.chars) delete state.hand.chars[state.sel]; refreshDetail(); refreshTile(); syncJSON(); refreshTestLine(); };
+$("endRadius").onchange = e => setRule({ endRadius: +e.target.value });
+$("endAmount").onchange = e => setRule({ endAmount: +e.target.value });
+$("crossbar").onclick = () => setRule({ crossbar: rule().crossbar === false ? undefined : false });
+$("pMin").onchange = $("pMax").onchange = () => setRule({ pooled: [+$("pMin").value, Math.max(+$("pMin").value, +$("pMax").value)] });
+
+/* ---------- JSON ---------- */
+function syncJSON() { $("json").value = JSON.stringify(state.hand, null, 2); $("fontName").textContent = `${state.family.replace(/"/g, "")} · hand: ${state.hand.name || "unnamed"}`; }
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("json").value); $("copyMsg").textContent = "copied"; }
+  catch { $("json").select(); $("copyMsg").textContent = "select-all done: copy with your keyboard"; }
+};
+$("apply").onclick = () => {
+  try { state.hand = JSON.parse($("json").value); $("copyMsg").textContent = "applied"; renderAll(); }
+  catch (err) { $("copyMsg").textContent = "not valid JSON: " + err.message; }
+};
+
+/* ---------- test line (real nib.js on a paragraph) ---------- */
+let ink = null;
+function refreshTestLine() {
+  const p = $("testLine");
+  p.style.fontFamily = state.family;
+  ink?.detach(p);                                  // replacing the text would orphan the ink canvas
+  p.textContent = $("testText").value;
+  ink = createInk({ fonts: [{ family: state.family, hand: structuredClone(state.hand) }] });
+  ink.attach(p);
+}
+let tt; $("testText").oninput = () => { clearTimeout(tt); tt = setTimeout(refreshTestLine, 250); };
+
+async function renderAll() { syncJSON(); await renderGrid(); refreshDetail(); refreshTestLine(); }
+document.fonts.load('40px "eravas print a"').then(renderAll);
+</script>
+</body>
+</html>
