@@ -37,8 +37,8 @@ ready, then the ink fades in.
 | Path | What it is |
 | --- | --- |
 | `nib.js` | The renderer. One ES module, no dependencies, no build step. |
-| `inspector.html` | Font inspector: proposes stroke rules for a font and exports a hand. |
-| `hands/` | Hands (stroke rules) as JSON. |
+| `inspector.html` | Font inspector: proposes ink rules for a font and exports a hand. |
+| `hands/` | Hands (where strokes start and ink pools) as JSON. |
 | `profiles/` | Ink colour profiles as JSON. |
 | `fonts/eravas-print-a/` | The example font (WOFF2 for the web, OTF to install), its license and its FONTLOG. |
 | `examples/index.html` | Example page. |
@@ -86,52 +86,65 @@ const hand = await (await fetch("hands/my-font.json")).json();
 
 ## Hands
 
-A hand describes how a font's letters were written: which way each stroke runs and where ink pools.
-nib.js finds the strokes from each glyph's shape; the hand settles what the shape can't tell it.
+A hand describes how a font's letters were written, as points on each glyph. **Sinks** are where a
+stroke touches down, so the ink is lightest there. **Pools** are where ink collects, so it is heaviest
+there. Everything else is the base colour. You place points in the inspector; any character without
+them is guessed from the glyph's shape.
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "name": "eravas print a",
   "refSize": 92,
   "closedPoolChance": 0.5,
-  "defaults": { "kind": "stroke" },
   "chars": {
-    ",": { "kind": "mark" },
-    "g": { "start": "skel:top", "end": "junction:right", "endRadius": 1.9, "endAmount": 1, "crossbar": false },
-    "*": { "kind": "radial", "pooled": [1, 3] }
+    ",": { "poolRadius": 1.7, "poolAmount": 1 },
+    "e": { "sinks": [{ "x": 0.213, "y": -0.193 }], "pools": [{ "x": 0.207, "y": -0.033, "radius": 1.9 }] },
+    "*": {
+      "poolRandom": [1, 3],
+      "sinks": [{ "x": 0.217, "y": -0.6 }, { "x": 0.313, "y": -0.613 }],
+      "pools": [{ "x": 0.23, "y": -0.363, "dir": 249 }, { "x": 0.143, "y": -0.397, "dir": 304 }]
+    }
   }
 }
 ```
 
 - `refSize`: the size in px the shading is calibrated at. Smaller text pools over more of each stroke.
-- `closedPoolChance`: how often closed shapes such as `o` pool where they start and end.
-- `kind`:
-  - `stroke`: one stroke from start to end, pooling at the end. Extra free ends are a crossbar.
-  - `mark`: starts at the top, pools at the bottom.
-  - `radial`: strokes run through a centre, like an asterisk.
-  - `dot`: the whole shape pools. `none`: no pools.
-- `start`, `end`, and `pools[].at` take a point:
-  - `"top"`, `"bottom"`, `"left"` or `"right"`: the most extreme free stroke end in that direction.
-  - `"junction:<dir>"` or `"skel:<dir>"`: the most extreme crossing or centreline point.
-  - `{ "x": 0.21, "y": -0.04 }`: a point in em from the pen origin (y down), snapped to the nearest centreline.
-- `endRadius` and `endAmount`: size and weight of the end pool. `crossbar: false` turns off crossbar pooling.
-- `pooled`: for `radial`, the minimum and maximum number of strokes that pool.
+- `closedPoolChance`: how often guessed closed shapes, such as `o`, pool where they start and end.
+- `chars`: one entry per character, all fields optional:
+  - `sinks: [{ x, y, radius?, dir? }]` and `pools: [{ x, y, radius?, amount?, dir?, reach? }]`.
+    Points are in em from the pen origin (y down) and snap to the glyph's centreline. Lightening and
+    pooling fade with distance measured through the ink, so they don't jump gaps between strokes.
+    Where a pool overlaps a sink, the pool wins.
+  - `radius` scales a sink's light run-in (1 is standard) or sets a pool's size. `amount` is a pool's
+    weight.
+  - `dir` points a sink or pool down one branch, in degrees (0 is right, 90 is down). Near the point
+    it spreads only that way, and it stops at the next crossing. A directed pool also washes ink back
+    up that branch for `reach` em (default 0.3), which is how one arm of the asterisk takes heavy ink.
+  - `poolRadius` and `poolAmount`: defaults for the character's pools, placed or guessed.
+  - `poolRandom: [min, max]`: only that many of the character's pools, picked at random each time,
+    take ink. The asterisk uses this.
+  - `crossbar: false`: turns off crossbar pooling in guesses.
 
-Dots, such as the dots on i and j, always pool whole unless the rule is `none`. Characters without a rule use `defaults`.
+Parts of a glyph without placed points are guessed: dots, such as the dots on i and j, pool whole;
+closed shapes start and end at the top; anything else is one stroke from its topmost free end to its
+lowest, and extra free ends are treated as a crossbar.
 
 ## Font inspector
 
-Open `inspector.html`, then load a font. Each glyph shows its centreline with the proposed start and
-end. Glyphs where the guess is uncertain are flagged:
+Open `inspector.html`, then load a font. Each glyph shows its centreline, its placed sinks and pools,
+and the guessed start and end of anything else. Guesses that are likely wrong are flagged:
 
 - more than two free ends
 - closed shapes
 - ends at the same height
 - several separate strokes
 
-Select a glyph to set its kind, click to place its start, end or extra pools, and watch the ink
-previews and the test line update. Copy the hand as JSON when you're done.
+Select a glyph, choose `[sink]` or `[pool]`, and click the glyph to place one. Click a placed point to
+select it, then set its size, amount, reach and direction (`[set direction]`, then click where it
+should point). `[place from guess]` turns the current guess into points you can edit. You can also set
+the character's pool defaults and turn on random pooling. The ink previews and test line update as you
+go. Copy the hand as JSON when you're done.
 
 ## Profiles
 
@@ -146,10 +159,10 @@ Optical density is how strongly the ink absorbs each colour channel; higher is d
 ## How it works
 
 1. **Analysis.** Each glyph is rasterised with slight hand jitter and thinned to a one-pixel
-   centreline (Zhang–Suen). Free ends and crossings come from that centreline. The hand turns them
-   into strokes, start points and pools.
+   centreline (Zhang–Suen). Free ends and crossings come from that centreline. The hand's sinks and
+   pools snap to it; anything without them is guessed from the free ends.
 2. **Simulation.** Ink spreads along the stroke but not out of it. The stroke darkens with distance
-   from its start, pools dry with tide lines and edge darkening, and paper tooth and word-to-word flow
+   (through the ink) from the nearest sink, pools dry with tide lines and edge darkening, and paper tooth and word-to-word flow
    vary the result.
 3. **Colour.** Density maps through the profile: thin strokes along the navy line curve, pools along
    the violet swatch curve.
@@ -188,10 +201,10 @@ Measured on the example page in headless Chrome:
 
 - The example font was built with [Ductus](https://ductus.sorenblank.com).
 - Ink pooling and shading profiles developed from measurements taken from writing samples from
-  [Mountain of Ink](https://mountainofink.com/blog/sailors-sailor).
+  [Mountain of Ink]([https://mountainofink.com](https://mountainofink.com/blog/sailors-sailor).
 - Centreline thinning: T. Y. Zhang and C. Y. Suen, "A fast parallel algorithm for thinning digital
   patterns", Communications of the ACM, 1984.
-- Made using Claude Opus 5.5
+- Made with Claude Opus 5.5
 
 ## License
 

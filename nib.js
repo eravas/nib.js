@@ -20,9 +20,9 @@
  *   ink.setEnabled(false);   // plain text everywhere; ink.setEnabled(true) to restore
  *
  * The engine knows nothing about a particular font: it rasterises each glyph and finds its strokes
- * from the shape. What is personal lives in a *hand* (plain data, see ERAVAS_PRINT_A): which way
- * strokes run, where ink pools, and the size calibration. Make one for a new font with the font
- * inspector, which proposes rules, flags ambiguous glyphs and exports the hand as JSON.
+ * from the shape. What is personal lives in a *hand* (plain data, see ERAVAS_PRINT_A): where
+ * strokes start, where ink pools, and the size calibration. Make one for a new font with the font
+ * inspector, which proposes points, flags ambiguous glyphs and exports the hand as JSON.
  *
  * Variant fonts: every letter picks one of the fonts at random (by weight, only fonts that have the
  * character). Layout and spacing come from the first font; a variant glyph is centred in that
@@ -44,21 +44,36 @@
  * Randomness is seeded from each element's text, so the same text always inks the same way.
  */
 
-/** Stroke rules for "eravas print a". Keys of `chars` are characters; see planStrokes for the rule
- *  fields (kind, start, end, endRadius, endAmount, crossbar, pools, pooled). Characters without a
- *  rule use `defaults`: one stroke from the topmost free end to the lowest, pooling at the end. */
+/** Ink rules for "eravas print a" (hand format 2). Keys of `chars` are characters; see planStrokes for
+ *  the fields. Characters without placed points are guessed: one stroke from the topmost free end to
+ *  the lowest, pooling at the end. Directions are degrees, 0 = right, 90 = down. */
 export const ERAVAS_PRINT_A = {
-  format: 1,
+  format: 2,
   name: "eravas print a",
   refSize: 92,               // px size the shading was calibrated at; smaller text pools more of each stroke
   closedPoolChance: 0.5,     // closed shapes (o) pool at their start/end half the time
-  defaults: { kind: "stroke" },
   chars: {
-    ",": { kind: "mark" }, ";": { kind: "mark" }, "'": { kind: "mark" }, '"': { kind: "mark" }, "`": { kind: "mark" },
-    "\u2018": { kind: "mark" }, "\u2019": { kind: "mark" }, "\u201C": { kind: "mark" }, "\u201D": { kind: "mark" },
-    "e": { end: "bottom", endRadius: 1.9, endAmount: 1 },                            // starts in the loop, pools on the tail
-    "g": { start: "skel:top", end: "junction:right", endRadius: 1.9, endAmount: 1, crossbar: false }, // upper loop → where the lower loop closes into the link
-    "*": { kind: "radial", pooled: [1, 3] },                                        // strokes pass through the centre
+    // short marks: guessed top to bottom, with a full pool at the bottom
+    ",": { poolRadius: 1.7, poolAmount: 1 }, ";": { poolRadius: 1.7, poolAmount: 1 }, "'": { poolRadius: 1.7, poolAmount: 1 },
+    '"': { poolRadius: 1.7, poolAmount: 1 }, "`": { poolRadius: 1.7, poolAmount: 1 },
+    "\u2018": { poolRadius: 1.7, poolAmount: 1 }, "\u2019": { poolRadius: 1.7, poolAmount: 1 },
+    "\u201C": { poolRadius: 1.7, poolAmount: 1 }, "\u201D": { poolRadius: 1.7, poolAmount: 1 },
+    // e: starts in the loop, pools on the tail
+    "e": { sinks: [{ x: 0.213, y: -0.193 }], pools: [{ x: 0.207, y: -0.033, radius: 1.9, amount: 1 }] },
+    // g: starts in the upper loop, pools where the lower loop closes into the link
+    "g": { sinks: [{ x: 0.212, y: -0.287 }], pools: [{ x: 0.347, y: -0.07, radius: 1.9, amount: 1 }] },
+    // asterisk: four strokes through the centre; 1–3 of their pools, picked at random, take heavy ink
+    // and wash back up their arm
+    "*": {
+      poolRandom: [1, 3],
+      sinks: [{ x: 0.217, y: -0.6 }, { x: 0.313, y: -0.613 }, { x: 0.38, y: -0.51 }, { x: 0.097, y: -0.57 }],
+      pools: [
+        { x: 0.23, y: -0.363, dir: 249 },    // top → bottom
+        { x: 0.143, y: -0.397, dir: 304 },   // upper right → lower left
+        { x: 0.09, y: -0.473, dir: 3 },      // right → left
+        { x: 0.22, y: -0.5, dir: 210 },      // short upper-left arm, ending in the centre
+      ],
+    },
   },
 };
 
@@ -139,18 +154,21 @@ function skeleton(B, w, h) {
 }
 
 /* ---------- stroke planning: where strokes start and where ink pools ----------
-   Driven by a hand (see ERAVAS_PRINT_A). Each connected blob of ink in a glyph is planned on its own:
-   - compact blobs (dots) are always one whole pool
-   - otherwise the character's rule applies (or hand.defaults):
-       kind "stroke"  one stroke: start → end, heavy pool at the end; extra free ends are a crossbar
-       kind "mark"    short mark: starts at the top, pools at the bottom
-       kind "radial"  strokes through a centre (asterisk): opposite arms pair up, 1–3 strokes pool
-       kind "dot"     the whole blob pools;  kind "none": no pools
-   Point specs pick a feature of the blob:
-       "top" | "bottom" | "left" | "right"         the most extreme free stroke end
-       "junction:<dir>" | "skel:<dir>"               the most extreme crossing / centreline point
-       { x, y }                                      a point in em from the pen origin (y down), snapped
-                                                     to the nearest centreline point of the blob        */
+   Driven by a hand (see ERAVAS_PRINT_A). A character's entry may place points, each { x, y } in em
+   from the pen origin (y down), snapped to the glyph's centreline:
+       sinks: [{ x, y, radius?, dir? }]                  where a stroke touches down: lightest
+       pools: [{ x, y, radius?, amount?, dir?, reach? }]  where ink collects: heaviest
+   Everything else is the base colour. Distances are measured through the ink, not across gaps. A pool
+   wins where it overlaps a sink. radius scales a sink's light run-in or sets a pool's size (in stroke
+   half-widths); amount is a pool's ink. dir (degrees, 0 = right, 90 = down) points a sink or pool down
+   one branch: its spread is held to that direction near the point and stops at the next crossing, and
+   a directed pool also washes ink back up that branch for `reach` em (default 0.3).
+   Other entry fields: poolRadius / poolAmount (defaults for the character's pools, placed or guessed),
+   poolRandom: [min, max] (only that many of the pools, picked at random, take ink), crossbar: false.
+   Blobs of ink no placed point touches are guessed:
+   - compact blobs (dots) are one whole pool
+   - closed shapes (o) start and end at the top
+   - otherwise one stroke from the topmost free end to the lowest; extra free ends are a crossbar  */
 function components(B, w, h) {
   const L = new Int32Array(w * h).fill(-1), comps = [], stack = [];
   for (let s0 = 0; s0 < w * h; s0++) {
@@ -186,19 +204,6 @@ const DIRS = {
 };
 const extreme = (pts, dir) => pts.length ? pts.reduce((a, b) => (DIRS[dir](a, b) ? b : a)) : null;
 
-function pickPoint(spec, c, origin) {
-  if (spec == null) return null;
-  if (typeof spec === "object") {
-    const tx = origin.x + spec.x * origin.em, ty = origin.y + spec.y * origin.em;
-    let best = null, bd = Infinity;
-    for (const p of c.skel) { const d = (p[0] - tx) ** 2 + (p[1] - ty) ** 2; if (d < bd) { bd = d; best = p; } }
-    return bd <= (0.18 * origin.em) ** 2 ? best : null;       // the point belongs to another blob of the glyph
-  }
-  const [set, dir] = spec.includes(":") ? spec.split(":") : ["end", spec];
-  const pts = set === "junction" ? c.juncs : set === "skel" ? c.skel : c.ends;
-  return extreme(pts, dir) || extreme(c.skel, dir);
-}
-
 function isDot(c, half) {
   const span = Math.max(c.x1 - c.x0, c.y1 - c.y0) + 1;
   return span <= half * 3.6 || c.skel.length <= half * 2.2;
@@ -206,6 +211,19 @@ function isDot(c, half) {
 
 // two set neighbours that touch each other (a diagonal and an orthogonal one) still make a stroke end
 function adjacent(p) { for (let k = 0; k < 8; k++) if (p[k] && p[(k + 1) % 8]) return true; return false; }
+
+// nearest centreline pixel to an em point, across all blobs (null if none within 0.2 em)
+function snapPoint(spec, comps, origin) {
+  const tx = origin.x + spec.x * origin.em, ty = origin.y + spec.y * origin.em;
+  let best = null, comp = null, bd = Infinity;
+  for (const c of comps) for (const p of c.skel) {
+    const d = (p[0] - tx) ** 2 + (p[1] - ty) ** 2; if (d < bd) { bd = d; best = p; comp = c; }
+  }
+  return bd <= (0.2 * origin.em) ** 2 ? { p: best, comp } : null;
+}
+
+// a direction in degrees (0 = right, 90 = down) → unit vector
+const unit = deg => deg === undefined || deg === null ? null : [Math.cos(deg * Math.PI / 180), Math.sin(deg * Math.PI / 180)];
 
 function planStrokes(B, S, w, h, half, flow, opts, rand) {
   const { L, comps } = components(B, w, h);
@@ -219,99 +237,132 @@ function planStrokes(B, S, w, h, half, flow, opts, rand) {
     if (n === 1 || (cn === 1 && n === 2 && (p[0] + p[2] + p[4] + p[6]) === 1 && (p[1] + p[3] + p[5] + p[7]) === 1 && adjacent(p))) c.ends.push([x, y]);
     else if (cn >= 3) c.juncs.push([x, y]);
   }
-  const hand = opts.hand, ch = opts.ch, rule = { ...(hand.defaults || {}), ...((hand.chars || {})[ch] || {}) };
+  for (const c of comps) if (!c.skel.length) c.skel.push([Math.round(c.cx), Math.round(c.cy)]);
+  const hand = opts.hand, rule = (hand.chars || {})[opts.ch] || {};
   const wet = 0.5 + flow, heavy = () => (0.75 + 0.35 * rand()) * wet;
   const R = k => Math.max(2, Math.round(half * k * opts.poolScale));
-  const origin = opts.origin, stamps = [], starts = [], strokes = [];
+  const origin = opts.origin, stamps = [], sinks = [], fields = [], points = [], strokes = [], covered = new Set();
   const pool = (p, r, amt, why) => { if (p) stamps.push({ x: p[0], y: p[1], r, amt, why }); };
+  const poolR = () => rule.poolRadius ?? (1.4 + 0.6 * rand()), poolA = () => rule.poolAmount ?? (0.7 + 0.3 * rand());
 
+  // placed points: sinks (where a stroke touches down, lightest) and pools (where ink collects)
+  const placed = (list, type) => (list || []).map((spec, index) => ({ spec, index, type, snap: snapPoint(spec, comps, origin) }))
+    .filter(q => q.snap);
+  const pls = placed(rule.pools, "pool"), sks = placed(rule.sinks, "sink");
+  for (const q of [...pls, ...sks]) covered.add(q.snap.comp.id);
+  let used = new Set(pls.map(q => q.index));
+  if (rule.poolRandom) {
+    // only a few of the pools, picked at random, take ink
+    const order = pls.map(q => q.index);
+    for (let k = order.length - 1; k > 0; k--) { const j = Math.floor(rand() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
+    const [lo, hi] = rule.poolRandom;
+    used = new Set(order.slice(0, lo + Math.floor(rand() * (hi - lo + 1))));
+  }
+  for (const { spec, index, snap } of pls) {
+    const u = unit(spec.dir), on = used.has(index);
+    points.push({ type: "pool", index, p: snap.p, u, used: on });
+    if (!on) continue;
+    const r = R(spec.radius ?? poolR()), amt = heavy() * (spec.amount ?? poolA());
+    if (!u) pool(snap.p, r, amt, "pool");
+    // a directed pool collects at its point and washes back up the stroke it points along, as far as
+    // `reach` em or the first crossing
+    else fields.push({ p: snap.p, u, r, amt, reach: (spec.reach ?? 0.3) * origin.em, wet });
+  }
+  for (const { spec, index, snap } of sks) {
+    const u = unit(spec.dir);
+    points.push({ type: "sink", index, p: snap.p, u, used: true });
+    sinks.push({ p: snap.p, u, scale: spec.radius ?? 1 });
+  }
+
+  // blobs no placed point touches: guess them
   for (const c of comps) {
-    if (!c.skel.length) c.skel.push([Math.round(c.cx), Math.round(c.cy)]);
-    const plan = { comp: c, kind: rule.kind || "stroke", start: null, end: null };
+    if (covered.has(c.id)) continue;
+    const plan = { kind: "auto", comp: c, start: null, end: null };
     strokes.push(plan);
-    if (rule.kind === "none") continue;
-    if (rule.kind === "dot" || isDot(c, half)) {
+    if (isDot(c, half)) {
       plan.kind = "dot";
       const span = Math.max(c.x1 - c.x0, c.y1 - c.y0) + 1;
       pool([Math.round(c.cx), Math.round(c.cy)], Math.round(span * 0.75), 1.1 * heavy(), "dot");
       continue;
     }
     pruneSpurs(c, half);
-    const pts = c.ends.length ? c.ends : c.skel;
-
-    if (plan.kind === "mark") {
-      plan.start = pickPoint(rule.start || "top", c, origin) || extreme(pts, "top");
-      plan.end = pickPoint(rule.end || "bottom", c, origin) || extreme(pts, "bottom");
-      starts.push(plan.start);
-      pool(plan.end, R(rule.endRadius ?? 1.7), heavy() * (rule.endAmount ?? 1), "end");
-    } else if (plan.kind === "radial") {
-      // strokes run tip to opposite tip through the centre; 1–3 (rule.pooled) of them take heavy ink
-      const arms = c.ends.map(([x, y]) => ({ x, y, a: Math.atan2(y - c.cy, x - c.cx) }));
-      const pairs = [], used = new Set(), cands = [];
-      for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
-        let d = Math.abs(arms[i].a - arms[j].a); if (d > Math.PI) d = 2 * Math.PI - d;
-        cands.push({ i, j, off: Math.abs(Math.PI - d) });
-      }
-      cands.sort((p, q) => p.off - q.off);
-      for (const { i, j, off } of cands) if (off < 0.7 && !used.has(i) && !used.has(j)) { used.add(i); used.add(j); pairs.push([arms[i], arms[j]]); }
-      arms.forEach((arm, i) => { if (!used.has(i)) pairs.push([arm]); });
-      for (let k = pairs.length - 1; k > 0; k--) { const j = Math.floor(rand() * (k + 1)); [pairs[k], pairs[j]] = [pairs[j], pairs[k]]; }
-      const [lo, hi] = rule.pooled || [1, 3];
-      plan.arms = pairs;
-      for (const st of pairs.slice(0, lo + Math.floor(rand() * (hi - lo + 1)))) {
-        const [p0, p1] = st.length === 2 ? st : [{ x: c.cx, y: c.cy }, st[0]];
-        const end = p0.y > p1.y ? p0 : p1, start = end === p0 ? p1 : p0;
-        for (let t = 0; t <= 12; t++) {
-          const u = t / 12;
-          pool([Math.round(start.x + (end.x - start.x) * u), Math.round(start.y + (end.y - start.y) * u)], R(0.9), (0.22 + 0.25 * u) * wet, "stroke");
-        }
-        pool([Math.round(end.x), Math.round(end.y)], R(1.6), heavy(), "end");
-      }
-    } else if (!c.ends.length && !rule.end) {
+    if (!c.ends.length) {
       // closed shape (o): starts and ends at the top
-      plan.start = pickPoint(rule.start || "skel:top", c, origin);
-      starts.push(plan.start);
-      if (rand() < (hand.closedPoolChance ?? 0.5)) pool(plan.start, R(1.4), 0.6 * heavy(), "end");
-      plan.end = plan.start;
-    } else {
-      // one stroke; any further free ends belong to a crossbar drawn left to right
-      plan.end = pickPoint(rule.end || "bottom", c, origin);
-      const rest = c.ends.filter(p => p !== plan.end);
-      plan.start = rule.start ? pickPoint(rule.start, c, origin) : (extreme(rest, "top") || extreme(c.skel, "top"));
-      starts.push(plan.start);
-      pool(plan.end, R(rule.endRadius ?? (1.4 + 0.6 * rand())), heavy() * (rule.endAmount ?? (0.7 + 0.3 * rand())), "end");
-      const bar = rule.crossbar === false ? [] : rest.filter(p => p !== plan.start);
-      if (bar.length) {
-        const right = extreme(bar, "right");
-        if (rand() < 0.6) pool(right, R(1.2), 0.5 * heavy(), "crossbar");
-        starts.push(plan.barStart = extreme(bar, "left"));
-        plan.barEnd = right;
-      }
+      plan.start = plan.end = extreme(c.skel, "top");
+      sinks.push({ p: plan.start, u: null, scale: 1 });
+      if (rand() < (hand.closedPoolChance ?? 0.5)) pool(plan.start, R(1.4), 0.6 * heavy(), "pool");
+      continue;
     }
-    for (const p of rule.pools || []) pool(pickPoint(p.at, c, origin), R(p.radius ?? 1.5), heavy() * (p.amount ?? 1), "extra");
+    // one stroke from the topmost free end to the lowest; any further free ends belong to a crossbar
+    // drawn left to right
+    plan.end = extreme(c.ends, "bottom");
+    const rest = c.ends.filter(p => p !== plan.end);
+    plan.start = extreme(rest, "top") || extreme(c.skel, "top");
+    sinks.push({ p: plan.start, u: null, scale: 1 });
+    pool(plan.end, R(poolR()), heavy() * poolA(), "pool");
+    const bar = rule.crossbar === false ? [] : rest.filter(p => p !== plan.start);
+    if (bar.length) {
+      const right = extreme(bar, "right");
+      if (rand() < 0.6) pool(right, R(1.2), 0.5 * heavy(), "crossbar");
+      sinks.push({ p: plan.barStart = extreme(bar, "left"), u: null, scale: 1 });
+      plan.barEnd = right;
+    }
   }
-  return { comps, strokes, stamps, starts: starts.filter(Boolean), L };
+  const juncs = comps.flatMap(c => c.juncs);
+  return { comps, strokes, stamps, sinks: sinks.filter(s => s.p), fields, points, juncs, covered, L };
 }
 
-// geodesic distance (in pixels, 8-connected) through the ink from the stroke starts
-function strokeDistance(B, w, h, starts) {
+// geodesic distance (in pixels, 8-connected) through the ink from one or more sources. With a direction
+// u, the spread is held to a 60° cone near the source (so a point at a junction runs down one branch
+// only) and stops at the first crossing it meets beyond that.
+function geodesic(B, w, h, sources, u = null, half = 2, juncs = []) {
   const dist = new Float32Array(w * h).fill(Infinity);
   let q = [];
-  for (const [x, y] of starts) { const i = y * w + x; if (B[i]) { dist[i] = 0; q.push(i); } }
+  for (const [x, y] of sources) { const i = y * w + x; if (B[i]) { dist[i] = 0; q.push(i); } }
+  let own = 0, gate = 0, stop = null, sx = 0, sy = 0;
+  if (u) {
+    [sx, sy] = sources[0]; own = (half * 1.2) ** 2; gate = (half * 3.5) ** 2;
+    stop = new Uint8Array(w * h);                     // crossings past the gate: reached, not passed
+    const zr = Math.ceil(half * 1.5);
+    for (const [jx, jy] of juncs) {
+      if ((jx - sx) ** 2 + (jy - sy) ** 2 <= gate) continue;
+      for (let y = Math.max(0, jy - zr); y <= Math.min(h - 1, jy + zr); y++)
+        for (let x = Math.max(0, jx - zr); x <= Math.min(w - 1, jx + zr); x++)
+          if ((x - jx) ** 2 + (y - jy) ** 2 <= zr * zr) stop[y * w + x] = 1;
+    }
+  }
+  const allowed = (x, y) => {
+    const dx = x - sx, dy = y - sy, d2 = dx * dx + dy * dy;
+    if (d2 <= own || d2 > gate) return true;
+    return (dx * u[0] + dy * u[1]) >= 0.5 * Math.sqrt(d2);
+  };
   while (q.length) {
     const nq = [];
     for (const i of q) {
+      if (stop && stop[i]) continue;
       const x = i % w, y = (i / w) | 0, d = dist[i];
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         const j = ny * w + nx, nd = d + (dx && dy ? 1.414 : 1);
-        if (B[j] && nd < dist[j]) { dist[j] = nd; nq.push(j); }
+        if (B[j] && nd < dist[j] && (!u || allowed(nx, ny))) { dist[j] = nd; nq.push(j); }
       }
     }
     q = nq;
   }
   return dist;
+}
+
+// distance from the nearest sink, scaled by each sink's radius (1 = the standard light run-in)
+function sinkDistance(B, w, h, sinks, half, juncs) {
+  const plain = sinks.filter(s => !s.u && s.scale === 1).map(s => s.p);
+  const d = plain.length ? geodesic(B, w, h, plain) : new Float32Array(w * h).fill(Infinity);
+  for (const s of sinks) {
+    if (!s.u && s.scale === 1) continue;
+    const g = geodesic(B, w, h, [s.p], s.u, half, juncs), k = 1 / Math.max(0.05, s.scale);
+    for (let i = 0; i < g.length; i++) { const v = g[i] * k; if (v < d[i]) d[i] = v; }
+  }
+  return d;
 }
 
 /* ---------- ink deposition ---------- */
@@ -329,19 +380,27 @@ function simulate(A, w, h, opts, rand) {
   const flow = opts.flow;
 
   // nodes: stroke ends (1 neighbour) pool most; crossings (3+) get overlap ink
-  const D = new Float32Array(N);
+  const D = new Float32Array(N), core = new Float32Array(N);   // core: pool heads only, not washes
   const stamp = (cx, cy, r, amt) => {
     const r2 = r * r;
     for (let y = Math.max(0, cy - r); y <= Math.min(h - 1, cy + r); y++)
       for (let x = Math.max(0, cx - r); x <= Math.min(w - 1, cx + r); x++) {
         const d2 = (x - cx) ** 2 + (y - cy) ** 2;
-        if (d2 <= r2) D[y * w + x] += amt * (1 - d2 / r2);
+        if (d2 <= r2) { const v = amt * (1 - d2 / r2); D[y * w + x] += v; core[y * w + x] += v; }
       }
   };
   const plan = planStrokes(B, S, w, h, half, flow, opts, rand);
   for (const p of plan.stamps) stamp(p.x, p.y, p.r, p.amt);
-  const starts = plan.starts;
-  const sdist = strokeDistance(B, w, h, starts);
+  for (const f of plan.fields) {
+    // directed pool: a heavy pool at its point, then a wash up the stroke, fading with distance
+    const g = geodesic(B, w, h, [f.p], f.u, half, plan.juncs);
+    for (let i = 0; i < N; i++) {
+      const d = g[i]; if (d === Infinity) continue;
+      if (d < f.r) { const v = f.amt * (1 - (d / f.r) ** 2); D[i] += v; core[i] += v; }
+      if (d < f.reach) D[i] += (0.22 + 0.25 * (1 - d / f.reach)) * f.wet;
+    }
+  }
+  const sdist = sinkDistance(B, w, h, plan.sinks, half, plan.juncs);
 
   // pools spread a little along the stroke but not out of it: normalised masked blur
   const Bf = Float32Array.from(B);
@@ -366,7 +425,12 @@ function simulate(A, w, h, opts, rand) {
   const slow = noise(w, h, half * 16, rand), tooth = noise(w, h, Math.max(1, half * 0.25), rand);
   // W: how far the stroke has got from its start (0 = just touched down, 1 = flowing), plus slow flow variation
   const W = new Float32Array(N), prog = new Float32Array(N), runIn = half * 7 / Math.sqrt(sc);
-  for (let i = 0; i < N; i++) { W[i] = slow[i]; prog[i] = sdist[i] === Infinity ? 1 : smooth(0, runIn, sdist[i]); }
+  for (let i = 0; i < N; i++) {
+    W[i] = slow[i];
+    const d = sdist[i];                                        // distance from the nearest sink
+    // a pool sits on top of a light start (the end of an o lands on its beginning); washes don't
+    prog[i] = Math.max(d === Infinity ? 1 : smooth(0, runIn, d), smooth(0.25, 0.6, core[i]));
+  }
 
   // a pool dries with a hard tide line where its ink stops: a band around a threshold of the pool field
   const tide = new Float32Array(N), tl = 0.22;
@@ -535,15 +599,14 @@ export function analyseGlyph({ ch, family, hand = ERAVAS_PRINT_A, sizePx = 160, 
   const rand = rng(seed);
   const g = rasteriseGlyph(ch, family, sizePx, rand, false);
   const sim = simulate(g.A, g.w, g.h, { flow, hand, ch, sizePx: hand.refSize || 92, origin: g.origin }, rand);
-  const ruled = !!(hand.chars || {})[ch], flags = [], strokes = sim.plan.strokes.filter(s => s.kind !== "dot");
-  if (!ruled) {
-    if (strokes.length > 1) flags.push("several strokes");
-    for (const s of strokes) {
-      const c = s.comp, n = c.ends.length;
-      if (s.kind === "stroke" && n > 2) flags.push("more than two free ends: crossbar or branch?");
-      if (n === 0) flags.push("closed shape: start guessed at the top");
-      if (n === 2 && Math.abs(c.ends[0][1] - c.ends[1][1]) < 0.12 * sizePx) flags.push("ends at the same height: start/end order is a guess");
-    }
+  const r = (hand.chars || {})[ch] || {}, ruled = !!(r.sinks?.length || r.pools?.length), flags = [];
+  const auto = sim.plan.strokes.filter(s => s.kind === "auto");
+  if (auto.length > 1) flags.push("several strokes guessed: place their points");
+  for (const s of auto) {
+    const c = s.comp, n = c.ends.length;
+    if (n > 2) flags.push("more than two free ends: crossbar or branch?");
+    if (n === 0) flags.push("closed shape: start guessed at the top");
+    if (n === 2 && Math.abs(c.ends[0][1] - c.ends[1][1]) < 0.12 * sizePx) flags.push("ends at the same height: direction is a guess");
   }
   return { ...g, sim, plan: sim.plan, flags: [...new Set(flags)], ruled };
 }
@@ -595,10 +658,12 @@ export function createInk(options = {}) {
     ...options,
   };
   // Fonts: the first one lays out the text (set it on the elements); every font, including the first,
-  // is a variant that letters pick from at random. Each font carries its own hand (stroke rules).
+  // is a variant that letters pick from at random. Each font carries its own hand (where strokes start and ink pools).
   cfg.fonts = (options.fonts || [{ family: options.font || '"eravas print a"', hand: options.hand }])
     .map(f => (typeof f === "string" ? { family: f } : f))
     .map(f => ({ weight: 1, ...f, hand: f.hand || options.hand || ERAVAS_PRINT_A }));
+  for (const f of cfg.fonts) if ((f.hand.format || 1) < 2)
+    console.warn(`nib.js: the hand for ${f.family} is format 1, which isn't supported since Rev.B; place its points again in the inspector.`);
   // several fonts already vary each letter's shape, so by default one jitter variant per font is enough
   if (options.variants == null && cfg.fonts.length > 1) cfg.variants = 1;
   cfg.tables = makeTables(cfg.profile);

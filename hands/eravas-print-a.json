@@ -1,57 +1,123 @@
 {
-  "format": 1,
+  "format": 2,
   "name": "eravas print a",
   "refSize": 92,
   "closedPoolChance": 0.5,
-  "defaults": {
-    "kind": "stroke"
-  },
   "chars": {
     ",": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     ";": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "'": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "\"": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "`": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "‘": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "’": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "“": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "”": {
-      "kind": "mark"
+      "poolRadius": 1.7,
+      "poolAmount": 1
     },
     "e": {
-      "end": "bottom",
-      "endRadius": 1.9,
-      "endAmount": 1
+      "sinks": [
+        {
+          "x": 0.213,
+          "y": -0.193
+        }
+      ],
+      "pools": [
+        {
+          "x": 0.207,
+          "y": -0.033,
+          "radius": 1.9,
+          "amount": 1
+        }
+      ]
     },
     "g": {
-      "start": "skel:top",
-      "end": "junction:right",
-      "endRadius": 1.9,
-      "endAmount": 1,
-      "crossbar": false
+      "sinks": [
+        {
+          "x": 0.212,
+          "y": -0.287
+        }
+      ],
+      "pools": [
+        {
+          "x": 0.347,
+          "y": -0.07,
+          "radius": 1.9,
+          "amount": 1
+        }
+      ]
     },
     "*": {
-      "kind": "radial",
-      "pooled": [
+      "poolRandom": [
         1,
         3
+      ],
+      "sinks": [
+        {
+          "x": 0.217,
+          "y": -0.6
+        },
+        {
+          "x": 0.313,
+          "y": -0.613
+        },
+        {
+          "x": 0.38,
+          "y": -0.51
+        },
+        {
+          "x": 0.097,
+          "y": -0.57
+        }
+      ],
+      "pools": [
+        {
+          "x": 0.23,
+          "y": -0.363,
+          "dir": 249
+        },
+        {
+          "x": 0.143,
+          "y": -0.397,
+          "dir": 304
+        },
+        {
+          "x": 0.09,
+          "y": -0.473,
+          "dir": 3
+        },
+        {
+          "x": 0.22,
+          "y": -0.5,
+          "dir": 210
+        }
       ]
     }
   }
 }
+

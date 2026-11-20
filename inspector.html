@@ -42,6 +42,11 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 460px; min-height: c
 .row { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
 .row .k { color: var(--muted); min-width: 70px; }
 .flags { color: var(--flag); }
+.strokes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.strokes li { display: flex; gap: 12px; align-items: center; }
+.strokes li .swatch { width: 10px; height: 10px; display: inline-block; }
+.strokes li button.sel { text-decoration: underline; text-underline-offset: 3px; }
+.hint { margin: 0; font-size: 12px; }
 .preview { display: flex; gap: 10px; background: var(--paper); border: 1px solid var(--faint); padding: 8px; align-items: flex-end; min-height: 120px; }
 .preview canvas { mix-blend-mode: multiply; }
 .testline { background: var(--paper); border: 1px solid var(--faint); padding: 14px 16px; }
@@ -65,7 +70,7 @@ input[type=text] { background: var(--paper); border: 1px solid var(--faint); pad
     <div class="filters" role="group" aria-label="Show">
       <button data-filter="all" aria-pressed="true">[all]</button>
       <button data-filter="flag" aria-pressed="false">[flagged]</button>
-      <button data-filter="rule" aria-pressed="false">[ruled]</button>
+      <button data-filter="rule" aria-pressed="false">[placed]</button>
       <span class="muted" id="counts"></span>
     </div>
     <div class="grid" id="grid"></div>
@@ -73,36 +78,46 @@ input[type=text] { background: var(--paper); border: 1px solid var(--faint); pad
 
   <section class="right" aria-label="Selected glyph">
     <div class="row"><span class="k">glyph</span><strong id="selCh" style="font-size:16px"></strong><span class="muted" id="selInfo"></span></div>
-    <div class="big"><canvas id="big" width="440" height="440" aria-label="Glyph analysis: click to place the active point"></canvas></div>
+    <div class="big"><canvas id="big" width="440" height="440" aria-label="Glyph analysis: click to place or select a point"></canvas></div>
     <div class="legend">
-      <span><i style="background:var(--start)"></i>start</span>
-      <span><i style="background:var(--end)"></i>end</span>
-      <span><i style="background:rgba(106,63,176,.25)"></i>pools</span>
+      <span><i style="background:var(--start)"></i>sinks (light starts)</span>
+      <span><i style="background:var(--end)"></i>pools (hollow: not picked this time)</span>
+      <span>rings: guesses</span>
+      <span><i style="background:rgba(106,63,176,.25)"></i>guessed pools</span>
       <span><i style="background:#c0392b"></i>free ends</span>
       <span><i style="background:#2f7fb8"></i>crossings</span>
     </div>
     <div class="flags" id="flags"></div>
 
-    <div class="row" role="group" aria-label="Kind">
-      <span class="k">kind</span>
-      <button data-kind="stroke">[stroke]</button><button data-kind="mark">[mark]</button>
-      <button data-kind="radial">[radial]</button><button data-kind="dot">[dot]</button><button data-kind="none">[none]</button>
-    </div>
     <div class="row" role="group" aria-label="Click places">
-      <span class="k">click sets</span>
-      <button data-tool="start" aria-pressed="true">[start]</button><button data-tool="end">[end]</button><button data-tool="pool">[+pool]</button>
-      <button id="clearPools">[clear pools]</button><button id="reset">[reset rule]</button>
+      <span class="k">click places</span>
+      <button data-tool="sink" aria-pressed="false">[sink]</button><button data-tool="pool" aria-pressed="true">[pool]</button>
+      <button id="adoptGuess">[place from guess]</button><button id="clearPoints">[clear points]</button><button id="reset">[reset character]</button>
+    </div>
+    <ol class="strokes" id="pointList" aria-label="Placed points"></ol>
+    <p class="hint muted">Sinks are where a stroke touches down (lightest); pools are where ink collects (heaviest); the rest is the base colour. Click the glyph to place one, or click a point to select it. A character with no points is guessed.</p>
+    <div class="row" id="pointEdit" role="group" aria-label="Selected point" hidden>
+      <span class="k" id="ptName"></span>
+      <label>size <input id="ptRadius" type="range" step="0.05"></label>
+      <label id="ptAmountL">amount <input id="ptAmount" type="range" min="0" max="1.5" step="0.05"></label>
+      <button id="ptDir" aria-pressed="false">[set direction]</button><button id="ptDirClear">[no direction]</button>
+      <label id="ptReachL">reach <input id="ptReach" type="range" min="0.05" max="0.6" step="0.01"></label>
+      <span class="muted" id="ptDirInfo"></span>
     </div>
     <div class="row">
-      <span class="k">end pool</span>
-      <label>size <input id="endRadius" type="range" min="0.8" max="3" step="0.1"></label>
-      <label>amount <input id="endAmount" type="range" min="0" max="1.5" step="0.05"></label>
-      <button id="crossbar">[crossbar: on]</button>
+      <span class="k">pools</span>
+      <label>size <input id="poolRadius" type="range" min="0.8" max="3" step="0.1"></label>
+      <label>amount <input id="poolAmount" type="range" min="0" max="1.5" step="0.05"></label>
+      <span class="muted">defaults for this character</span>
     </div>
-    <div class="row" id="radialRow" hidden>
-      <span class="k">pooled</span>
-      <label>min <input id="pMin" type="number" min="0" max="6" style="width:46px"></label>
-      <label>max <input id="pMax" type="number" min="0" max="6" style="width:46px"></label>
+    <div class="row">
+      <span class="k">random</span>
+      <button id="randomPool">[pick pools at random: off]</button>
+      <span id="randomRange" hidden>
+        <label>min <input id="pMin" type="number" min="0" max="9" style="width:46px"></label>
+        <label>max <input id="pMax" type="number" min="0" max="9" style="width:46px"></label>
+      </span>
+      <button id="crossbar">[crossbar guess: on]</button>
     </div>
 
     <div>
@@ -127,13 +142,18 @@ const CHARS = [...Array(94)].map((_, i) => String.fromCharCode(33 + i)).concat([
 const SHORT_MARKS = [",", ";", "'", '"', "`", "‘", "’", "“", "”"];
 const TILE = 120, BIG = 220;
 
-const state = { family: '"eravas print a"', hand: structuredClone(ERAVAS_PRINT_A), sel: "g", tool: "start", filter: "all", info: new Map() };
+const state = { family: '"eravas print a"', hand: structuredClone(ERAVAS_PRINT_A), sel: "g", tool: "pool", active: null, aiming: false, filter: "all", info: new Map() };
 const $ = id => document.getElementById(id);
 
 /* ---------- font and hand loading ---------- */
 function starterHand(name) {
-  return { name, refSize: 92, closedPoolChance: 0.5, defaults: { kind: "stroke" },
-           chars: Object.fromEntries(SHORT_MARKS.map(c => [c, { kind: "mark" }])) };
+  return { format: 2, name, refSize: 92, closedPoolChance: 0.5,
+           chars: Object.fromEntries(SHORT_MARKS.map(c => [c, { poolRadius: 1.7, poolAmount: 1 }])) };
+}
+const angle = (from, to) => Math.round((Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI + 360) % 360);
+function loadHand(h) {
+  if ((h.format || 1) < 2) throw new Error("format 1 hands aren't supported since Rev.B; place the points again here");
+  state.hand = h; $("copyMsg").textContent = "";
 }
 function hasGlyph(family, ch) {
   const ctx = hasGlyph.ctx ||= document.createElement("canvas").getContext("2d");
@@ -150,11 +170,11 @@ $("fontFile").onchange = async e => {
 };
 $("handFile").onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
-  try { state.hand = JSON.parse(await file.text()); renderAll(); } catch (err) { $("copyMsg").textContent = "not valid JSON: " + err.message; }
+  try { loadHand(JSON.parse(await file.text())); renderAll(); } catch (err) { $("copyMsg").textContent = (err instanceof SyntaxError ? "not valid JSON: " : "") + err.message; }
 };
 
 /* ---------- drawing an analysis ---------- */
-function drawAnalysis(canvas, a, { detail }) {
+function drawAnalysis(canvas, a, { detail, active = null }) {
   const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   // fit the glyph's ink (not the simulation padding) to the canvas
@@ -171,7 +191,7 @@ function drawAnalysis(canvas, a, { detail }) {
   const tmp = Object.assign(document.createElement("canvas"), { width: a.w, height: a.h });
   tmp.getContext("2d").putImageData(img, 0, 0);
   ctx.imageSmoothingEnabled = true; ctx.drawImage(tmp, ox, oy, a.w * s, a.h * s);
-  // pools
+  // pool stamps (guessed and undirected placed pools)
   for (const st of a.plan.stamps) { const [x, y] = P(st.x, st.y); ctx.fillStyle = "rgba(106,63,176,.22)"; ctx.beginPath(); ctx.arc(x, y, st.r * s, 0, 7); ctx.fill(); }
   // centreline
   ctx.fillStyle = "#3a332d";
@@ -181,19 +201,33 @@ function drawAnalysis(canvas, a, { detail }) {
     const sq = (pts, col) => { ctx.fillStyle = col; for (const [x, y] of pts) { const [px, py] = P(x, y); ctx.fillRect(px - 3, py - 3, 6, 6); } };
     for (const c of a.plan.comps) { sq(c.ends, "#c0392b"); sq(c.juncs.filter((_, i) => i % 3 === 0), "#2f7fb8"); }
   }
-  // starts and ends
-  const ring = (p, col, label) => {
-    if (!p) return; const [x, y] = P(p[0], p[1]), r = detail ? 9 : 6;
-    ctx.strokeStyle = col; ctx.lineWidth = detail ? 2.5 : 2; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
-    if (detail) { ctx.fillStyle = col; ctx.font = "12px ui-monospace, monospace"; ctx.fillText(label, x + r + 3, y - r); }
+  const ring = (p, col, label, r = detail ? 9 : 6) => {
+    if (!p) return; const [x, y] = P(p[0], p[1]);
+    ctx.strokeStyle = col; ctx.lineWidth = detail ? 2.5 : 2; ctx.setLineDash([]); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+    if (detail && label) { ctx.fillStyle = col; ctx.font = "12px ui-monospace, monospace"; ctx.fillText(label, x + r + 3, y - r); }
   };
   for (const st of a.plan.strokes) {
-    if (st.kind === "radial" && detail) {
-      ctx.strokeStyle = "rgba(106,63,176,.5)"; ctx.lineWidth = 1.5;
-      for (const arm of st.arms || []) if (arm.length === 2) { const [x0, y0] = P(arm[0].x, arm[0].y), [x1, y1] = P(arm[1].x, arm[1].y); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+    if (st.kind !== "auto") continue;
+    ring(st.start, getVar("--start"), "start (guess)"); ring(st.end, getVar("--end"), "end (guess)");
+    if (st.barStart) ring(st.barStart, getVar("--start"), "bar (guess)");
+  }
+  // placed points: sinks green, pools violet (hollow when random pooling skipped them), arrows for directions
+  for (const q of a.plan.points) {
+    const col = getVar(q.type === "sink" ? "--start" : "--end"), [x, y] = P(q.p[0], q.p[1]);
+    const on = active && active.type === q.type && active.index === q.index, r = detail ? (on ? 9 : 7) : 4;
+    if (q.u) {
+      const L = detail ? 34 : 12, ex = x + q.u[0] * L, ey = y + q.u[1] * L, ang = Math.atan2(q.u[1], q.u[0]), hd = detail ? 8 : 4;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = detail ? 2.5 : 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - hd * Math.cos(ang - 0.5), ey - hd * Math.sin(ang - 0.5)); ctx.lineTo(ex - hd * Math.cos(ang + 0.5), ey - hd * Math.sin(ang + 0.5)); ctx.fill();
     }
-    ring(st.start, getVar("--start"), "start"); ring(st.end, getVar("--end"), "end");
-    if (st.barStart) ring(st.barStart, getVar("--start"), "bar");
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+    if (q.used) { ctx.fillStyle = col; ctx.fill(); } else { ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke(); }
+    if (on) { ctx.strokeStyle = getVar("--text"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
+    if (detail) {
+      ctx.fillStyle = q.used ? "#fff" : col; ctx.font = "bold 10px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(q.index + 1), x, y + 0.5); ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+    }
   }
   return { s, ox, oy };
 }
@@ -213,11 +247,11 @@ async function renderGrid() {
     state.info.set(ch, { flags: a.flags, ruled: a.ruled });
     const tile = document.createElement("button");
     tile.className = "tile"; tile.dataset.ch = ch;
-    tile.setAttribute("aria-label", `${ch}${a.ruled ? ", has a rule" : ""}${a.flags.length ? ", flagged: " + a.flags.join("; ") : ""}`);
+    tile.setAttribute("aria-label", `${ch}${a.ruled ? ", points placed" : ""}${a.flags.length ? ", flagged: " + a.flags.join("; ") : ""}`);
     const c = Object.assign(document.createElement("canvas"), { width: 100, height: 120 });
     drawAnalysis(c, a, { detail: false });
     tile.append(c, Object.assign(document.createElement("span"), { className: "ch", textContent: ch }));
-    if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "rule" : "!" }));
+    if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "placed" : "!" }));
     tile.onclick = () => select(ch);
     grid.append(tile);
     if (performance.now() - t > 12) { await new Promise(r => setTimeout(r)); t = performance.now(); }
@@ -225,7 +259,7 @@ async function renderGrid() {
   if (!state.sel || !chars.includes(state.sel)) state.sel = chars.find(c => state.info.get(c).flags.length) || chars[0];
   applyFilter(); markSel();
   const nf = [...state.info.values()].filter(i => i.flags.length).length, nr = [...state.info.values()].filter(i => i.ruled).length;
-  $("counts").textContent = `${chars.length} glyphs · ${nf} flagged · ${nr} with rules`;
+  $("counts").textContent = `${chars.length} glyphs · ${nf} flagged · ${nr} placed`;
 }
 function applyFilter() {
   for (const tile of $("grid").children) {
@@ -242,29 +276,70 @@ document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
 /* ---------- detail ---------- */
 let bigMap = null, bigAnalysis = null;
 const rule = () => state.hand.chars?.[state.sel] || {};
-const setRule = patch => {
+const list = type => rule()[type + "s"] || [];
+function setRule(patch) {
   const r = { ...rule(), ...patch };
-  for (const k of Object.keys(r)) if (r[k] === undefined) delete r[k];
+  for (const k of Object.keys(r)) if (r[k] === undefined || (Array.isArray(r[k]) && !r[k].length)) delete r[k];
   state.hand.chars ||= {};
   if (Object.keys(r).length) state.hand.chars[state.sel] = r; else delete state.hand.chars[state.sel];
+  if (state.active && !list(state.active.type)[state.active.index]) state.active = null;
   refreshDetail(); refreshTile(); syncJSON(); refreshTestLine();
-};
+}
+const setList = (type, l) => setRule({ [type + "s"]: l });
+const activePoint = () => state.active && list(state.active.type)[state.active.index];
+function patchPoint(patch) {
+  const { type, index } = state.active;
+  setList(type, list(type).map((q, k) => {
+    if (k !== index) return q;
+    const n = { ...q, ...patch }; for (const key of Object.keys(n)) if (n[key] === undefined) delete n[key]; return n;
+  }));
+}
 
-function select(ch) { state.sel = ch; markSel(); refreshDetail(); }
+function select(ch) { state.sel = ch; state.active = null; state.aiming = false; markSel(); refreshDetail(); }
+
+function renderPointList() {
+  const ol = $("pointList"); ol.textContent = "";
+  for (const type of ["sink", "pool"]) list(type).forEach((q, i) => {
+    const li = document.createElement("li"), on = state.active?.type === type && state.active.index === i;
+    const sw = Object.assign(document.createElement("span"), { className: "swatch" }); sw.style.background = getVar(type === "sink" ? "--start" : "--end");
+    const desc = [q.dir !== undefined && `→ ${q.dir}°`, q.radius !== undefined && `size ${q.radius}`, q.amount !== undefined && `amount ${q.amount}`, q.reach !== undefined && `reach ${q.reach}`].filter(Boolean).join(" · ");
+    const pick = Object.assign(document.createElement("button"), { textContent: `[${type} ${i + 1}]`, className: on ? "sel" : "" });
+    pick.setAttribute("aria-pressed", on); pick.onclick = () => { state.active = { type, index: i }; state.aiming = false; refreshDetail(); };
+    const del = Object.assign(document.createElement("button"), { textContent: "[×]" });
+    del.setAttribute("aria-label", `Delete ${type} ${i + 1}`);
+    del.onclick = () => { state.active = null; setList(type, list(type).filter((_, k) => k !== i)); };
+    li.append(sw, pick, Object.assign(document.createElement("span"), { className: "muted", textContent: desc }), del); ol.append(li);
+  });
+}
 
 function refreshDetail() {
   const ch = state.sel; if (!ch) return;
+  const r = rule(), n = list("sink").length + list("pool").length;
   $("selCh").textContent = ch;
-  $("selInfo").textContent = `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}` + (state.hand.chars?.[ch] ? " · rule set" : " · default rule");
+  $("selInfo").textContent = `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}` + (n ? ` · ${list("sink").length} sink(s), ${list("pool").length} pool(s)` : " · guessed");
   bigAnalysis = analyse(ch, BIG);
-  bigMap = drawAnalysis($("big"), bigAnalysis, { detail: true });
+  bigMap = drawAnalysis($("big"), bigAnalysis, { detail: true, active: state.active });
   $("flags").textContent = bigAnalysis.flags.length ? "check: " + bigAnalysis.flags.join(" · ") : "";
-  const r = rule(), kind = r.kind || state.hand.defaults?.kind || "stroke";
-  document.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-pressed", b.dataset.kind === kind));
-  $("endRadius").value = r.endRadius ?? 1.7; $("endAmount").value = r.endAmount ?? 0.85;
-  $("crossbar").textContent = `[crossbar: ${r.crossbar === false ? "off" : "on"}]`;
-  $("radialRow").hidden = kind !== "radial";
-  $("pMin").value = (r.pooled || [1, 3])[0]; $("pMax").value = (r.pooled || [1, 3])[1];
+  renderPointList();
+  // the selected point's settings
+  const q = activePoint(), isPool = state.active?.type === "pool";
+  $("pointEdit").hidden = !q;
+  if (q) {
+    $("ptName").textContent = `${state.active.type} ${state.active.index + 1}`;
+    Object.assign($("ptRadius"), isPool ? { min: 0.8, max: 3, step: 0.1 } : { min: 0.2, max: 3, step: 0.05 });
+    $("ptRadius").value = q.radius ?? (isPool ? r.poolRadius ?? 1.7 : 1);
+    $("ptAmountL").hidden = !isPool; $("ptAmount").value = q.amount ?? r.poolAmount ?? 0.85;
+    $("ptReachL").hidden = !isPool || q.dir === undefined; $("ptReach").value = q.reach ?? 0.3;
+    $("ptDir").setAttribute("aria-pressed", state.aiming);
+    $("ptDir").textContent = state.aiming ? "[click the glyph to aim…]" : "[set direction]";
+    $("ptDirClear").hidden = q.dir === undefined;
+    $("ptDirInfo").textContent = q.dir === undefined ? "spreads every way" : `points ${q.dir}° (0 right, 90 down)`;
+  }
+  $("poolRadius").value = r.poolRadius ?? 1.7; $("poolAmount").value = r.poolAmount ?? 0.85;
+  $("randomPool").textContent = `[pick pools at random: ${r.poolRandom ? "on" : "off"}]`;
+  $("randomRange").hidden = !r.poolRandom;
+  $("pMin").value = (r.poolRandom || [1, 3])[0]; $("pMax").value = (r.poolRandom || [1, 3])[1];
+  $("crossbar").textContent = `[crossbar guess: ${r.crossbar === false ? "off" : "on"}]`;
   // ink previews
   const pv = $("preview"); pv.textContent = "";
   for (let seed = 1; seed <= 3; seed++) {
@@ -278,28 +353,51 @@ function refreshTile() {
   state.info.set(state.sel, { flags: a.flags, ruled: a.ruled });
   drawAnalysis(tile.querySelector("canvas"), a, { detail: false });
   tile.querySelector(".badge")?.remove();
-  if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "rule" : "!" }));
+  if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "placed" : "!" }));
 }
 
-// clicks on the big canvas place the active point, in em from the pen origin (y down)
+// analysis pixels → em from the pen origin (y down), the hand's coordinate system
+const toEm = p => { const o = bigAnalysis.origin; return { x: +((p[0] - o.x) / o.em).toFixed(3), y: +((p[1] - o.y) / o.em).toFixed(3) }; };
+
 $("big").onclick = e => {
   if (!bigAnalysis) return;
   const rect = e.target.getBoundingClientRect(), k = e.target.width / rect.width;
-  const cx = ((e.clientX - rect.left) * k - bigMap.ox) / bigMap.s, cy = ((e.clientY - rect.top) * k - bigMap.oy) / bigMap.s;
-  const o = bigAnalysis.origin, pt = { x: +((cx - o.x) / o.em).toFixed(3), y: +((cy - o.y) / o.em).toFixed(3) };
-  if (state.tool === "pool") setRule({ pools: [...(rule().pools || []), { at: pt }] });
-  else setRule({ [state.tool]: pt });
+  const cx = (e.clientX - rect.left) * k, cy = (e.clientY - rect.top) * k;
+  const pt = toEm([(cx - bigMap.ox) / bigMap.s, (cy - bigMap.oy) / bigMap.s]);
+  const q = activePoint();
+  if (state.aiming && q) { state.aiming = false; return patchPoint({ dir: angle(q, pt) }); }
+  // clicking a placed point (where it is drawn, after snapping) selects it
+  const hit = bigAnalysis.plan.points.find(p => Math.hypot(bigMap.ox + p.p[0] * bigMap.s - cx, bigMap.oy + p.p[1] * bigMap.s - cy) < 12);
+  if (hit) { state.active = { type: hit.type, index: hit.index }; return refreshDetail(); }
+  const l = [...list(state.tool), pt];
+  state.active = { type: state.tool, index: l.length - 1 };
+  setList(state.tool, l);
 };
 document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => {
   state.tool = b.dataset.tool; document.querySelectorAll("[data-tool]").forEach(x => x.setAttribute("aria-pressed", x === b));
 });
-document.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => setRule({ kind: b.dataset.kind === "stroke" ? undefined : b.dataset.kind }));
-$("clearPools").onclick = () => setRule({ pools: undefined });
-$("reset").onclick = () => { if (state.hand.chars) delete state.hand.chars[state.sel]; refreshDetail(); refreshTile(); syncJSON(); refreshTestLine(); };
-$("endRadius").onchange = e => setRule({ endRadius: +e.target.value });
-$("endAmount").onchange = e => setRule({ endAmount: +e.target.value });
+$("ptRadius").onchange = e => patchPoint({ radius: +e.target.value });
+$("ptAmount").onchange = e => patchPoint({ amount: +e.target.value });
+$("ptReach").onchange = e => patchPoint({ reach: +e.target.value });
+$("ptDir").onclick = () => { state.aiming = !state.aiming; refreshDetail(); };
+$("ptDirClear").onclick = () => { state.aiming = false; patchPoint({ dir: undefined, reach: undefined }); };
+$("clearPoints").onclick = () => { state.active = null; setRule({ sinks: undefined, pools: undefined }); };
+// turn the current guess into editable points: a sink at each guessed start, a pool at each guessed end
+$("adoptGuess").onclick = () => {
+  const sinks = [...list("sink")], pools = [...list("pool")];
+  for (const st of bigAnalysis.plan.strokes) {
+    if (st.kind !== "auto" || !st.start) continue;
+    sinks.push(toEm(st.start)); pools.push(toEm(st.end));
+    if (st.barStart && st.barEnd) { sinks.push(toEm(st.barStart)); pools.push(toEm(st.barEnd)); }
+  }
+  state.active = null; setRule({ sinks, pools });
+};
+$("reset").onclick = () => { if (state.hand.chars) delete state.hand.chars[state.sel]; state.active = null; refreshDetail(); refreshTile(); syncJSON(); refreshTestLine(); };
+$("poolRadius").onchange = e => setRule({ poolRadius: +e.target.value });
+$("poolAmount").onchange = e => setRule({ poolAmount: +e.target.value });
 $("crossbar").onclick = () => setRule({ crossbar: rule().crossbar === false ? undefined : false });
-$("pMin").onchange = $("pMax").onchange = () => setRule({ pooled: [+$("pMin").value, Math.max(+$("pMin").value, +$("pMax").value)] });
+$("randomPool").onclick = () => setRule({ poolRandom: rule().poolRandom ? undefined : [1, Math.max(1, Math.min(3, list("pool").length))] });
+$("pMin").onchange = $("pMax").onchange = () => setRule({ poolRandom: [+$("pMin").value, Math.max(+$("pMin").value, +$("pMax").value)] });
 
 /* ---------- JSON ---------- */
 function syncJSON() { $("json").value = JSON.stringify(state.hand, null, 2); $("fontName").textContent = `${state.family.replace(/"/g, "")} · hand: ${state.hand.name || "unnamed"}`; }
@@ -308,8 +406,8 @@ $("copy").onclick = async () => {
   catch { $("json").select(); $("copyMsg").textContent = "select-all done: copy with your keyboard"; }
 };
 $("apply").onclick = () => {
-  try { state.hand = JSON.parse($("json").value); $("copyMsg").textContent = "applied"; renderAll(); }
-  catch (err) { $("copyMsg").textContent = "not valid JSON: " + err.message; }
+  try { loadHand(JSON.parse($("json").value)); $("copyMsg").textContent = "applied"; renderAll(); }
+  catch (err) { $("copyMsg").textContent = (err instanceof SyntaxError ? "not valid JSON: " : "") + err.message; }
 };
 
 /* ---------- test line (real nib.js on a paragraph) ---------- */
