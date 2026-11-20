@@ -201,7 +201,7 @@ Measured on the example page in headless Chrome:
 
 - The example font was built with [Ductus](https://ductus.sorenblank.com).
 - Ink pooling and shading profiles developed from measurements taken from writing samples from
-  [Mountain of Ink]([https://mountainofink.com](https://mountainofink.com/blog/sailors-sailor).
+  [Mountain of Ink](https://mountainofink.com/blog/sailors-sailor).
 - Centreline thinning: T. Y. Zhang and C. Y. Suen, "A fast parallel algorithm for thinning digital
   patterns", Communications of the ACM, 1984.
 - Made with Claude Opus 5.5
