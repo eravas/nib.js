@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nib.js font inspector</title>
+<style>
+@font-face { font-family: "eravas print a"; src: url("fonts/eravas-print-a/eravas-print-a.woff2") format("woff2"), url("fonts/eravas-print-a/eravas-print-a.otf") format("opentype"); }
+:root {
+  --ground: #F8F5F0; --paper: #fbfaf7; --text: #171310; --muted: #6b635b; --rule: #ddd6cc; --faint: #ece7df;
+  --start: #2f8f5b; --end: #6a3fb0; --flag: #b8741a;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--ground); color: var(--text); font: 13px/1.5 var(--mono); }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 2px 0; cursor: pointer; }
+button[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, .tile:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+header { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--rule); }
+header .title { margin-right: auto; }
+label.file { cursor: pointer; }
+label.file input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.muted { color: var(--muted); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 460px; min-height: calc(100vh - 58px); }
+.left { padding: 16px 24px; border-right: 1px solid var(--rule); }
+.filters { display: flex; gap: 16px; margin-bottom: 12px; align-items: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.tile { position: relative; background: var(--paper); border: 1px solid var(--faint); cursor: pointer; padding: 0; aspect-ratio: 5 / 6; }
+.tile canvas { width: 100%; height: 100%; display: block; }
+.tile .ch { position: absolute; left: 5px; top: 3px; font-size: 11px; color: var(--muted); }
+.tile .badge { position: absolute; right: 5px; top: 3px; font-size: 11px; }
+.tile .badge.flag { color: var(--flag); }
+.tile .badge.rule { color: var(--start); }
+.tile.sel { border-color: var(--text); }
+.right { padding: 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.big { background: var(--paper); border: 1px solid var(--faint); position: relative; }
+.big canvas { display: block; width: 100%; cursor: crosshair; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.row { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+.row .k { color: var(--muted); min-width: 70px; }
+.flags { color: var(--flag); }
+.strokes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.strokes li { display: flex; gap: 12px; align-items: center; }
+.strokes li .swatch { width: 10px; height: 10px; display: inline-block; }
+.strokes li button.sel { text-decoration: underline; text-underline-offset: 3px; }
+.hint { margin: 0; font-size: 12px; }
+.preview { display: flex; gap: 10px; background: var(--paper); border: 1px solid var(--faint); padding: 8px; align-items: flex-end; min-height: 120px; }
+.preview canvas { mix-blend-mode: multiply; }
+.testline { background: var(--paper); border: 1px solid var(--faint); padding: 14px 16px; }
+.testline p { margin: 0; font-size: 30px; line-height: 1.35; }
+textarea { width: 100%; height: 150px; background: var(--paper); border: 1px solid var(--faint); padding: 8px; font-size: 12px; resize: vertical; }
+input[type=range] { accent-color: var(--end); width: 120px; }
+input[type=text] { background: var(--paper); border: 1px solid var(--faint); padding: 3px 6px; width: 100%; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } .left { border-right: 0; border-bottom: 1px solid var(--rule); } }
+</style>
+</head>
+<body>
+<header>
+  <span class="title">nib.js font inspector</span>
+  <label class="file">[load font…]<input id="fontFile" type="file" accept=".otf,.ttf,.woff,.woff2"></label>
+  <label class="file">[load hand…]<input id="handFile" type="file" accept=".json,application/json"></label>
+  <span class="muted" id="fontName">eravas print a · hand: eravas print a</span>
+</header>
+
+<main>
+  <section class="left" aria-label="Glyphs">
+    <div class="filters" role="group" aria-label="Show">
+      <button data-filter="all" aria-pressed="true">[all]</button>
+      <button data-filter="flag" aria-pressed="false">[flagged]</button>
+      <button data-filter="rule" aria-pressed="false">[placed]</button>
+      <span class="muted" id="counts"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="right" aria-label="Selected glyph">
+    <div class="row"><span class="k">glyph</span><strong id="selCh" style="font-size:16px"></strong><span class="muted" id="selInfo"></span></div>
+    <div class="big"><canvas id="big" width="440" height="440" aria-label="Glyph analysis: click to place or select a point"></canvas></div>
+    <div class="legend">
+      <span><i style="background:var(--start)"></i>sinks (light starts)</span>
+      <span><i style="background:var(--end)"></i>pools (hollow: not picked this time)</span>
+      <span>rings: guesses</span>
+      <span><i style="background:rgba(106,63,176,.25)"></i>guessed pools</span>
+      <span><i style="background:#c0392b"></i>free ends</span>
+      <span><i style="background:#2f7fb8"></i>crossings</span>
+    </div>
+    <div class="flags" id="flags"></div>
+
+    <div class="row" role="group" aria-label="Click places">
+      <span class="k">click places</span>
+      <button data-tool="sink" aria-pressed="false">[sink]</button><button data-tool="pool" aria-pressed="true">[pool]</button>
+      <button id="adoptGuess">[place from guess]</button><button id="clearPoints">[clear points]</button><button id="reset">[reset character]</button>
+    </div>
+    <ol class="strokes" id="pointList" aria-label="Placed points"></ol>
+    <p class="hint muted">Sinks are where a stroke touches down (lightest); pools are where ink collects (heaviest); the rest is the base colour. Click the glyph to place one, or click a point to select it. A character with no points is guessed.</p>
+    <div class="row" id="pointEdit" role="group" aria-label="Selected point" hidden>
+      <span class="k" id="ptName"></span>
+      <label>size <input id="ptRadius" type="range" step="0.05"></label>
+      <label id="ptAmountL">amount <input id="ptAmount" type="range" min="0" max="1.5" step="0.05"></label>
+      <button id="ptDir" aria-pressed="false">[set direction]</button><button id="ptDirClear">[no direction]</button>
+      <label id="ptReachL">reach <input id="ptReach" type="range" min="0.05" max="0.6" step="0.01"></label>
+      <span class="muted" id="ptDirInfo"></span>
+    </div>
+    <div class="row">
+      <span class="k">pools</span>
+      <label>size <input id="poolRadius" type="range" min="0.8" max="3" step="0.1"></label>
+      <label>amount <input id="poolAmount" type="range" min="0" max="1.5" step="0.05"></label>
+      <span class="muted">defaults for this character</span>
+    </div>
+    <div class="row">
+      <span class="k">random</span>
+      <button id="randomPool">[pick pools at random: off]</button>
+      <span id="randomRange" hidden>
+        <label>min <input id="pMin" type="number" min="0" max="9" style="width:46px"></label>
+        <label>max <input id="pMax" type="number" min="0" max="9" style="width:46px"></label>
+      </span>
+      <button id="crossbar">[crossbar guess: on]</button>
+    </div>
+
+    <div>
+      <div class="row"><span class="k">ink</span><span class="muted">three inkings of the glyph with the current rule</span></div>
+      <div class="preview" id="preview"></div>
+    </div>
+    <div>
+      <div class="row"><span class="k">test line</span><input id="testText" type="text" value="the quick brown fox jumps; e.g. 'gigs'*" aria-label="Test text"></div>
+      <div class="testline"><p id="testLine"></p></div>
+    </div>
+    <div>
+      <div class="row"><span class="k">hand json</span><button id="copy">[copy]</button><button id="apply">[apply pasted]</button><span class="muted" id="copyMsg" aria-live="polite"></span></div>
+      <textarea id="json" spellcheck="false" aria-label="Hand JSON"></textarea>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { analyseGlyph, inkGlyph, createInk, ERAVAS_PRINT_A } from "./nib.js";
+
+const CHARS = [...Array(94)].map((_, i) => String.fromCharCode(33 + i)).concat(["‘", "’", "“", "”", "–", "—", "…"]);
+const SHORT_MARKS = [",", ";", "'", '"', "`", "‘", "’", "“", "”"];
+const TILE = 120, BIG = 220;
+
+const state = { family: '"eravas print a"', hand: structuredClone(ERAVAS_PRINT_A), sel: "g", tool: "pool", active: null, aiming: false, filter: "all", info: new Map() };
+const $ = id => document.getElementById(id);
+
+/* ---------- font and hand loading ---------- */
+function starterHand(name) {
+  return { format: 2, name, refSize: 92, closedPoolChance: 0.5,
+           chars: Object.fromEntries(SHORT_MARKS.map(c => [c, { poolRadius: 1.7, poolAmount: 1 }])) };
+}
+const angle = (from, to) => Math.round((Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI + 360) % 360);
+function loadHand(h) {
+  if ((h.format || 1) < 2) throw new Error("format 1 hands aren't supported since Rev.B; place the points again here");
+  state.hand = h; $("copyMsg").textContent = "";
+}
+function hasGlyph(family, ch) {
+  const ctx = hasGlyph.ctx ||= document.createElement("canvas").getContext("2d");
+  const w = f => { ctx.font = `40px ${f}`; return ctx.measureText(ch).width; };
+  return w(`${family}, monospace`) !== w("monospace") || w(`${family}, serif`) !== w("serif");
+}
+$("fontFile").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const name = "inspect-" + file.name.replace(/\W+/g, "-");
+  const face = new FontFace(name, await file.arrayBuffer());
+  await face.load(); document.fonts.add(face);
+  state.family = `"${name}"`; state.hand = starterHand(file.name.replace(/\.\w+$/, ""));
+  state.sel = null; renderAll();
+};
+$("handFile").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try { loadHand(JSON.parse(await file.text())); renderAll(); } catch (err) { $("copyMsg").textContent = (err instanceof SyntaxError ? "not valid JSON: " : "") + err.message; }
+};
+
+/* ---------- drawing an analysis ---------- */
+function drawAnalysis(canvas, a, { detail, active = null }) {
+  const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // fit the glyph's ink (not the simulation padding) to the canvas
+  let x0 = a.w, y0 = a.h, x1 = 0, y1 = 0;
+  for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) if (a.A[y * a.w + x] > 0.1) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < x0) { x0 = 0; y0 = 0; x1 = a.w; y1 = a.h; }
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, fit = detail ? 0.7 : 0.62;
+  const s = Math.min(W * fit / bw, H * fit / bh, detail ? 3 : 1.6);
+  const ox = W / 2 - (x0 + bw / 2) * s, oy = H / 2 - (y0 + bh / 2) * s + (detail ? 0 : 6);
+  const P = (x, y) => [ox + x * s, oy + y * s];
+  // mask
+  const img = ctx.createImageData(a.w, a.h);
+  for (let i = 0; i < a.A.length; i++) { const v = a.A[i]; if (v > 0.02) { img.data[i*4] = 214; img.data[i*4+1] = 208; img.data[i*4+2] = 198; img.data[i*4+3] = 255 * v; } }
+  const tmp = Object.assign(document.createElement("canvas"), { width: a.w, height: a.h });
+  tmp.getContext("2d").putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(tmp, ox, oy, a.w * s, a.h * s);
+  // pool stamps (guessed and undirected placed pools)
+  for (const st of a.plan.stamps) { const [x, y] = P(st.x, st.y); ctx.fillStyle = "rgba(106,63,176,.22)"; ctx.beginPath(); ctx.arc(x, y, st.r * s, 0, 7); ctx.fill(); }
+  // centreline
+  ctx.fillStyle = "#3a332d";
+  const S = a.sim.S, dot = Math.max(1, s * 0.9);
+  for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) if (S[y * a.w + x]) { const [px, py] = P(x, y); ctx.fillRect(px - dot / 2, py - dot / 2, dot, dot); }
+  if (detail) {
+    const sq = (pts, col) => { ctx.fillStyle = col; for (const [x, y] of pts) { const [px, py] = P(x, y); ctx.fillRect(px - 3, py - 3, 6, 6); } };
+    for (const c of a.plan.comps) { sq(c.ends, "#c0392b"); sq(c.juncs.filter((_, i) => i % 3 === 0), "#2f7fb8"); }
+  }
+  const ring = (p, col, label, r = detail ? 9 : 6) => {
+    if (!p) return; const [x, y] = P(p[0], p[1]);
+    ctx.strokeStyle = col; ctx.lineWidth = detail ? 2.5 : 2; ctx.setLineDash([]); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+    if (detail && label) { ctx.fillStyle = col; ctx.font = "12px ui-monospace, monospace"; ctx.fillText(label, x + r + 3, y - r); }
+  };
+  for (const st of a.plan.strokes) {
+    if (st.kind !== "auto") continue;
+    ring(st.start, getVar("--start"), "start (guess)"); ring(st.end, getVar("--end"), "end (guess)");
+    if (st.barStart) ring(st.barStart, getVar("--start"), "bar (guess)");
+  }
+  // placed points: sinks green, pools violet (hollow when random pooling skipped them), arrows for directions
+  for (const q of a.plan.points) {
+    const col = getVar(q.type === "sink" ? "--start" : "--end"), [x, y] = P(q.p[0], q.p[1]);
+    const on = active && active.type === q.type && active.index === q.index, r = detail ? (on ? 9 : 7) : 4;
+    if (q.u) {
+      const L = detail ? 34 : 12, ex = x + q.u[0] * L, ey = y + q.u[1] * L, ang = Math.atan2(q.u[1], q.u[0]), hd = detail ? 8 : 4;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = detail ? 2.5 : 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - hd * Math.cos(ang - 0.5), ey - hd * Math.sin(ang - 0.5)); ctx.lineTo(ex - hd * Math.cos(ang + 0.5), ey - hd * Math.sin(ang + 0.5)); ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+    if (q.used) { ctx.fillStyle = col; ctx.fill(); } else { ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke(); }
+    if (on) { ctx.strokeStyle = getVar("--text"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
+    if (detail) {
+      ctx.fillStyle = q.used ? "#fff" : col; ctx.font = "bold 10px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(q.index + 1), x, y + 0.5); ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+    }
+  }
+  return { s, ox, oy };
+}
+const getVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- grid ---------- */
+function analyse(ch, size) { return analyseGlyph({ ch, family: state.family, hand: state.hand, sizePx: size }); }
+
+async function renderGrid() {
+  const grid = $("grid"); grid.textContent = "";
+  await document.fonts.load(`40px ${state.family}`);
+  const chars = CHARS.filter(c => hasGlyph(state.family, c));
+  state.info.clear();
+  let t = performance.now();
+  for (const ch of chars) {
+    const a = analyse(ch, TILE);
+    state.info.set(ch, { flags: a.flags, ruled: a.ruled });
+    const tile = document.createElement("button");
+    tile.className = "tile"; tile.dataset.ch = ch;
+    tile.setAttribute("aria-label", `${ch}${a.ruled ? ", points placed" : ""}${a.flags.length ? ", flagged: " + a.flags.join("; ") : ""}`);
+    const c = Object.assign(document.createElement("canvas"), { width: 100, height: 120 });
+    drawAnalysis(c, a, { detail: false });
+    tile.append(c, Object.assign(document.createElement("span"), { className: "ch", textContent: ch }));
+    if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "placed" : "!" }));
+    tile.onclick = () => select(ch);
+    grid.append(tile);
+    if (performance.now() - t > 12) { await new Promise(r => setTimeout(r)); t = performance.now(); }
+  }
+  if (!state.sel || !chars.includes(state.sel)) state.sel = chars.find(c => state.info.get(c).flags.length) || chars[0];
+  applyFilter(); markSel();
+  const nf = [...state.info.values()].filter(i => i.flags.length).length, nr = [...state.info.values()].filter(i => i.ruled).length;
+  $("counts").textContent = `${chars.length} glyphs · ${nf} flagged · ${nr} placed`;
+}
+function applyFilter() {
+  for (const tile of $("grid").children) {
+    const i = state.info.get(tile.dataset.ch);
+    tile.hidden = state.filter === "flag" ? !i.flags.length : state.filter === "rule" ? !i.ruled : false;
+  }
+}
+function markSel() { for (const t of $("grid").children) t.classList.toggle("sel", t.dataset.ch === state.sel); }
+document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
+  state.filter = b.dataset.filter;
+  document.querySelectorAll("[data-filter]").forEach(x => x.setAttribute("aria-pressed", x === b)); applyFilter();
+});
+
+/* ---------- detail ---------- */
+let bigMap = null, bigAnalysis = null;
+const rule = () => state.hand.chars?.[state.sel] || {};
+const list = type => rule()[type + "s"] || [];
+function setRule(patch) {
+  const r = { ...rule(), ...patch };
+  for (const k of Object.keys(r)) if (r[k] === undefined || (Array.isArray(r[k]) && !r[k].length)) delete r[k];
+  state.hand.chars ||= {};
+  if (Object.keys(r).length) state.hand.chars[state.sel] = r; else delete state.hand.chars[state.sel];
+  if (state.active && !list(state.active.type)[state.active.index]) state.active = null;
+  refreshDetail(); refreshTile(); syncJSON(); refreshTestLine();
+}
+const setList = (type, l) => setRule({ [type + "s"]: l });
+const activePoint = () => state.active && list(state.active.type)[state.active.index];
+function patchPoint(patch) {
+  const { type, index } = state.active;
+  setList(type, list(type).map((q, k) => {
+    if (k !== index) return q;
+    const n = { ...q, ...patch }; for (const key of Object.keys(n)) if (n[key] === undefined) delete n[key]; return n;
+  }));
+}
+
+function select(ch) { state.sel = ch; state.active = null; state.aiming = false; markSel(); refreshDetail(); }
+
+function renderPointList() {
+  const ol = $("pointList"); ol.textContent = "";
+  for (const type of ["sink", "pool"]) list(type).forEach((q, i) => {
+    const li = document.createElement("li"), on = state.active?.type === type && state.active.index === i;
+    const sw = Object.assign(document.createElement("span"), { className: "swatch" }); sw.style.background = getVar(type === "sink" ? "--start" : "--end");
+    const desc = [q.dir !== undefined && `→ ${q.dir}°`, q.radius !== undefined && `size ${q.radius}`, q.amount !== undefined && `amount ${q.amount}`, q.reach !== undefined && `reach ${q.reach}`].filter(Boolean).join(" · ");
+    const pick = Object.assign(document.createElement("button"), { textContent: `[${type} ${i + 1}]`, className: on ? "sel" : "" });
+    pick.setAttribute("aria-pressed", on); pick.onclick = () => { state.active = { type, index: i }; state.aiming = false; refreshDetail(); };
+    const del = Object.assign(document.createElement("button"), { textContent: "[×]" });
+    del.setAttribute("aria-label", `Delete ${type} ${i + 1}`);
+    del.onclick = () => { state.active = null; setList(type, list(type).filter((_, k) => k !== i)); };
+    li.append(sw, pick, Object.assign(document.createElement("span"), { className: "muted", textContent: desc }), del); ol.append(li);
+  });
+}
+
+function refreshDetail() {
+  const ch = state.sel; if (!ch) return;
+  const r = rule(), n = list("sink").length + list("pool").length;
+  $("selCh").textContent = ch;
+  $("selInfo").textContent = `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}` + (n ? ` · ${list("sink").length} sink(s), ${list("pool").length} pool(s)` : " · guessed");
+  bigAnalysis = analyse(ch, BIG);
+  bigMap = drawAnalysis($("big"), bigAnalysis, { detail: true, active: state.active });
+  $("flags").textContent = bigAnalysis.flags.length ? "check: " + bigAnalysis.flags.join(" · ") : "";
+  renderPointList();
+  // the selected point's settings
+  const q = activePoint(), isPool = state.active?.type === "pool";
+  $("pointEdit").hidden = !q;
+  if (q) {
+    $("ptName").textContent = `${state.active.type} ${state.active.index + 1}`;
+    Object.assign($("ptRadius"), isPool ? { min: 0.8, max: 3, step: 0.1 } : { min: 0.2, max: 3, step: 0.05 });
+    $("ptRadius").value = q.radius ?? (isPool ? r.poolRadius ?? 1.7 : 1);
+    $("ptAmountL").hidden = !isPool; $("ptAmount").value = q.amount ?? r.poolAmount ?? 0.85;
+    $("ptReachL").hidden = !isPool || q.dir === undefined; $("ptReach").value = q.reach ?? 0.3;
+    $("ptDir").setAttribute("aria-pressed", state.aiming);
+    $("ptDir").textContent = state.aiming ? "[click the glyph to aim…]" : "[set direction]";
+    $("ptDirClear").hidden = q.dir === undefined;
+    $("ptDirInfo").textContent = q.dir === undefined ? "spreads every way" : `points ${q.dir}° (0 right, 90 down)`;
+  }
+  $("poolRadius").value = r.poolRadius ?? 1.7; $("poolAmount").value = r.poolAmount ?? 0.85;
+  $("randomPool").textContent = `[pick pools at random: ${r.poolRandom ? "on" : "off"}]`;
+  $("randomRange").hidden = !r.poolRandom;
+  $("pMin").value = (r.poolRandom || [1, 3])[0]; $("pMax").value = (r.poolRandom || [1, 3])[1];
+  $("crossbar").textContent = `[crossbar guess: ${r.crossbar === false ? "off" : "on"}]`;
+  // ink previews
+  const pv = $("preview"); pv.textContent = "";
+  for (let seed = 1; seed <= 3; seed++) {
+    const c = inkGlyph({ ch, family: state.family, hand: state.hand, sizePx: 92, seed, tier: 1 });
+    c.style.width = c.width / 1.4 + "px"; pv.append(c);
+  }
+}
+function refreshTile() {
+  const tile = [...$("grid").children].find(t => t.dataset.ch === state.sel); if (!tile) return;
+  const a = analyse(state.sel, TILE);
+  state.info.set(state.sel, { flags: a.flags, ruled: a.ruled });
+  drawAnalysis(tile.querySelector("canvas"), a, { detail: false });
+  tile.querySelector(".badge")?.remove();
+  if (a.ruled || a.flags.length) tile.append(Object.assign(document.createElement("span"), { className: "badge " + (a.ruled ? "rule" : "flag"), textContent: a.ruled ? "placed" : "!" }));
+}
+
+// analysis pixels → em from the pen origin (y down), the hand's coordinate system
+const toEm = p => { const o = bigAnalysis.origin; return { x: +((p[0] - o.x) / o.em).toFixed(3), y: +((p[1] - o.y) / o.em).toFixed(3) }; };
+
+$("big").onclick = e => {
+  if (!bigAnalysis) return;
+  const rect = e.target.getBoundingClientRect(), k = e.target.width / rect.width;
+  const cx = (e.clientX - rect.left) * k, cy = (e.clientY - rect.top) * k;
+  const pt = toEm([(cx - bigMap.ox) / bigMap.s, (cy - bigMap.oy) / bigMap.s]);
+  const q = activePoint();
+  if (state.aiming && q) { state.aiming = false; return patchPoint({ dir: angle(q, pt) }); }
+  // clicking a placed point (where it is drawn, after snapping) selects it
+  const hit = bigAnalysis.plan.points.find(p => Math.hypot(bigMap.ox + p.p[0] * bigMap.s - cx, bigMap.oy + p.p[1] * bigMap.s - cy) < 12);
+  if (hit) { state.active = { type: hit.type, index: hit.index }; return refreshDetail(); }
+  const l = [...list(state.tool), pt];
+  state.active = { type: state.tool, index: l.length - 1 };
+  setList(state.tool, l);
+};
+document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => {
+  state.tool = b.dataset.tool; document.querySelectorAll("[data-tool]").forEach(x => x.setAttribute("aria-pressed", x === b));
+});
+$("ptRadius").onchange = e => patchPoint({ radius: +e.target.value });
+$("ptAmount").onchange = e => patchPoint({ amount: +e.target.value });
+$("ptReach").onchange = e => patchPoint({ reach: +e.target.value });
+$("ptDir").onclick = () => { state.aiming = !state.aiming; refreshDetail(); };
+$("ptDirClear").onclick = () => { state.aiming = false; patchPoint({ dir: undefined, reach: undefined }); };
+$("clearPoints").onclick = () => { state.active = null; setRule({ sinks: undefined, pools: undefined }); };
+// turn the current guess into editable points: a sink at each guessed start, a pool at each guessed end
+$("adoptGuess").onclick = () => {
+  const sinks = [...list("sink")], pools = [...list("pool")];
+  for (const st of bigAnalysis.plan.strokes) {
+    if (st.kind !== "auto" || !st.start) continue;
+    sinks.push(toEm(st.start)); pools.push(toEm(st.end));
+    if (st.barStart && st.barEnd) { sinks.push(toEm(st.barStart)); pools.push(toEm(st.barEnd)); }
+  }
+  state.active = null; setRule({ sinks, pools });
+};
+$("reset").onclick = () => { if (state.hand.chars) delete state.hand.chars[state.sel]; state.active = null; refreshDetail(); refreshTile(); syncJSON(); refreshTestLine(); };
+$("poolRadius").onchange = e => setRule({ poolRadius: +e.target.value });
+$("poolAmount").onchange = e => setRule({ poolAmount: +e.target.value });
+$("crossbar").onclick = () => setRule({ crossbar: rule().crossbar === false ? undefined : false });
+$("randomPool").onclick = () => setRule({ poolRandom: rule().poolRandom ? undefined : [1, Math.max(1, Math.min(3, list("pool").length))] });
+$("pMin").onchange = $("pMax").onchange = () => setRule({ poolRandom: [+$("pMin").value, Math.max(+$("pMin").value, +$("pMax").value)] });
+
+/* ---------- JSON ---------- */
+function syncJSON() { $("json").value = JSON.stringify(state.hand, null, 2); $("fontName").textContent = `${state.family.replace(/"/g, "")} · hand: ${state.hand.name || "unnamed"}`; }
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("json").value); $("copyMsg").textContent = "copied"; }
+  catch { $("json").select(); $("copyMsg").textContent = "select-all done: copy with your keyboard"; }
+};
+$("apply").onclick = () => {
+  try { loadHand(JSON.parse($("json").value)); $("copyMsg").textContent = "applied"; renderAll(); }
+  catch (err) { $("copyMsg").textContent = (err instanceof SyntaxError ? "not valid JSON: " : "") + err.message; }
+};
+
+/* ---------- test line (real nib.js on a paragraph) ---------- */
+let ink = null;
+function refreshTestLine() {
+  const p = $("testLine");
+  p.style.fontFamily = state.family;
+  ink?.detach(p);                                  // replacing the text would orphan the ink canvas
+  p.textContent = $("testText").value;
+  ink = createInk({ fonts: [{ family: state.family, hand: structuredClone(state.hand) }] });
+  ink.attach(p);
+}
+let tt; $("testText").oninput = () => { clearTimeout(tt); tt = setTimeout(refreshTestLine, 250); };
+
+async function renderAll() { syncJSON(); await renderGrid(); refreshDetail(); refreshTestLine(); }
+document.fonts.load('40px "eravas print a"').then(renderAll);
+</script>
+</body>
+</html>
